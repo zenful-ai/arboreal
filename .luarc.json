@@ -1,0 +1,9 @@
+{
+    "diagnostics.globals": [
+        "arboreal",
+        "message",
+        "mcp",
+        "signal",
+        "annotation"
+    ]
+}
