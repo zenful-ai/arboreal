@@ -166,37 +166,11 @@ options := arboreal.LLMCompletionOptions{
 The `examples/` directory contains various use cases:
 
 - **Chat Bot** (`examples/test/`) - Basic conversational agent
-- **RAG System** (`examples/rag/`) - Retrieval-augmented generation
 - **CRM Assistant** (`examples/crm/`) - Customer relationship management
-- **MLS Integration** (`examples/mls/`) - Real estate listing system
 
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/zenful-ai/arboreal.git
-   cd arboreal
-   ```
-
-2. Install dependencies:
-   ```bash
-   go mod download
-   ```
-
-3. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
-
-4. Run tests:
-   ```bash
-   go test ./...
-   ```
 
 ### Project Structure
 
@@ -206,33 +180,23 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ├── *.go               # Core framework files
 ├── llm/               # LLM provider integrations
 ├── examples/          # Example applications
-├── cast/              # Cast system (categorization/organization)
 ├── engine/            # Lua scripting engine
-├── runtime/           # Runtime utilities
 └── util/              # Utility functions
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the BSD License - see the [LICENSE](LICENSE) file for details.
 
 ## Roadmap
 
+- [ ] Better documentation
 - [ ] Enhanced testing coverage
 - [ ] More LLM provider integrations
-- [ ] GraphQL API support
-- [ ] WebSocket channels
 - [ ] Enhanced debugging tools
 - [ ] Performance optimizations
-- [ ] Docker deployment guides
 
 ## Support
 
-- **Documentation**: [docs/](docs/)
 - **Issues**: [GitHub Issues](https://github.com/zenful-ai/arboreal/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/zenful-ai/arboreal/discussions)
-
-## Acknowledgments
-
-- Built with ❤️ by the Zenful AI team
-- Inspired by behavior tree patterns in game AI and robotics
