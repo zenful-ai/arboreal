@@ -180,7 +180,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ├── *.go               # Core framework files
 ├── llm/               # LLM provider integrations
 ├── examples/          # Example applications
-├── engine/            # Lua scripting engine
+├── engine/            # Lua scripting engine (see engine/README.md)
 └── util/              # Utility functions
 ```
 
