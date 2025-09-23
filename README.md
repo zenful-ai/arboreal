@@ -190,10 +190,11 @@ This project is licensed under the BSD License - see the [LICENSE](LICENSE) file
 
 ## Roadmap
 
-- [ ] Better documentation
-- [ ] Enhanced testing coverage
+- [ ] Vector store re-implementation
 - [ ] More LLM provider integrations
 - [ ] Enhanced debugging tools
+- [ ] Better documentation
+- [ ] Enhanced testing coverage
 - [ ] Performance optimizations
 
 ## Support
