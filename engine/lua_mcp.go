@@ -31,7 +31,7 @@ func arborealToolCall(l *lua.LState) int {
 	})
 
 	if err != nil {
-		l.RaiseError("Error calling tool: %w", err)
+		l.RaiseError("Error calling tool: %s", err.Error())
 		return 0
 	}
 
@@ -46,7 +46,7 @@ func arborealToolCall(l *lua.LState) int {
 		case *mcp.TextContent:
 			content.Append(lua.LString(t.Text))
 		default:
-			l.RaiseError("unsupported content type: %w", err)
+			l.RaiseError("unsupported content type")
 		}
 	}
 
