@@ -424,7 +424,7 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 					break
 				}
 
-				r, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				r, err := client.CallTool(ctx, &mcp.CallToolParams{
 					Name:      res.Message.ToolCalls[0].Name,
 					Arguments: res.Message.ToolCalls[0].Arguments,
 				})
@@ -449,15 +449,20 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 					content = string(b)
 				}
 
-				request.Messages = append(request.Messages,
-					res.Message,
-					llm.ChatCompletionMessage{
-						Meta:    res.Message.ToolCalls[0].Meta,
-						Name:    res.Message.ToolCalls[0].Name,
-						Role:    llm.ChatMessageRoleFunction,
-						Content: content,
-					},
+				toolResultMessage := llm.ChatCompletionMessage{
+					Meta:    res.Message.ToolCalls[0].Meta,
+					Name:    res.Message.ToolCalls[0].Name,
+					Role:    llm.ChatMessageRoleFunction,
+					Content: content,
+				}
+
+				// Keep tool call and result in history so callers can inspect executed tools.
+				history = append(history,
+					AnnotatedMessage{ChatCompletionMessage: res.Message},
+					AnnotatedMessage{ChatCompletionMessage: toolResultMessage},
 				)
+
+				request.Messages = append(request.Messages, res.Message, toolResultMessage)
 			}
 
 			s := Signal(nil)

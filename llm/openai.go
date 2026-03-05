@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -14,6 +15,33 @@ import (
 
 type OpenAIService struct{}
 
+const (
+	openAIProjectHeader = "OpenAI-Project"
+)
+
+type projectHeaderHTTPClient struct {
+	base    openai.HTTPDoer
+	project string
+}
+
+func (c projectHeaderHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	base := c.base
+	if base == nil {
+		base = http.DefaultClient
+	}
+
+	project := strings.TrimSpace(c.project)
+	if project == "" {
+		return base.Do(req)
+	}
+
+	clonedReq := req.Clone(req.Context())
+	clonedReq.Header = req.Header.Clone()
+	clonedReq.Header.Set(openAIProjectHeader, project)
+
+	return base.Do(clonedReq)
+}
+
 func createOpenAIClient() (*openai.Client, error) {
 	var token string
 
@@ -21,7 +49,25 @@ func createOpenAIClient() (*openai.Client, error) {
 		return nil, errors.New("OPENAI_TOKEN environment variable not set")
 	}
 
-	client := openai.NewClient(token)
+	config := openai.DefaultConfig(token)
+
+	project := strings.TrimSpace(os.Getenv("OPENAI_PROJECT"))
+	if project == "" {
+		project = strings.TrimSpace(os.Getenv("OPENAI_PROJECT_ID"))
+	}
+	if project != "" {
+		config.HTTPClient = projectHeaderHTTPClient{
+			base:    config.HTTPClient,
+			project: project,
+		}
+	}
+
+	org := strings.TrimSpace(os.Getenv("OPENAI_ORG"))
+	if org != "" {
+		config.OrgID = org
+	}
+
+	client := openai.NewClientWithConfig(config)
 
 	return client, nil
 }
