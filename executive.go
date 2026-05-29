@@ -416,7 +416,7 @@ func (e *TodoListExecutive) Execute(ctx context.Context, messages AnnotatedMessa
 			e.planDepth += 1
 
 			e.Plan(messages)
-			e.Execute(nil, messages)
+			e.Execute(ctx, messages)
 
 			return
 		}
@@ -561,7 +561,7 @@ func (e *TodoListExecutive) RunLoop(c Channel) error {
 			}
 		}
 
-		e.Execute(nil, e.History)
+		e.Execute(context.Background(), e.History)
 
 		e.History = AppendToMessages(e.History, llm.ChatCompletionMessage{
 			Role:    llm.ChatMessageRoleAssistant,
