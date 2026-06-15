@@ -50,7 +50,7 @@ func arborealPlannerPlan(l *lua.LState) int {
 
 	messages := checkArborealAnnotatedMessages(l, 2)
 
-	exec.Plan(*messages)
+	exec.Plan(l.Context(), *messages)
 	return 0
 }
 
@@ -59,7 +59,7 @@ func arborealPlannerExecute(l *lua.LState) int {
 
 	messages := checkArborealAnnotatedMessages(l, 2)
 
-	exec.Execute(nil, *messages)
+	exec.Execute(l.Context(), *messages)
 	return 0
 }
 

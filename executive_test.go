@@ -43,18 +43,19 @@ func (c *oneShotChannel) Receive() (*ChannelMessage, error) {
 	return &ChannelMessage{Id: "1", Content: "Hello"}, nil
 }
 
-// TestRunLoopThreadsNonNilContext is the regression test for the nil-context
-// panic. The RunLoop used to call e.Execute(nil, ...), so the behavior tree —
-// and ultimately the LLM provider's select on ctx.Done() — received a nil
-// context and crashed with a SIGSEGV on the very first user turn.
+// TestRunLoopThreadsCallerSuppliedContext is the regression test for the
+// nil-context panic. The RunLoop used to call e.Execute(nil, ...), so the
+// behavior tree — and ultimately the LLM provider's select on ctx.Done() —
+// received a nil context and crashed with a SIGSEGV on the very first user turn.
 //
 // We pre-seed the executive's plan with a behavior that captures the context it
 // receives, drive a single turn through the real RunLoop, and assert the
-// context that reached the behavior is non-nil. Pre-seeding the plan also means
+// caller's own context (identified by a sentinel value) reaches the behavior —
+// not merely that some non-nil context does. Pre-seeding the plan also means
 // RunLoop skips the planning LLM call, and the behavior's CollectUserInputSignal
 // makes Execute return before the summarizer LLM call — so the test is hermetic
 // (no network required).
-func TestRunLoopThreadsNonNilContext(t *testing.T) {
+func TestRunLoopThreadsCallerSuppliedContext(t *testing.T) {
 	behavior := &ctxCapturingBehavior{}
 
 	exec := CreateTodoListExecutive("test exec", "exercises context threading", behavior)
@@ -62,13 +63,22 @@ func TestRunLoopThreadsNonNilContext(t *testing.T) {
 		{Behavior: behavior, Messages: AnnotatedMessages{}},
 	}
 
+	// Supply a caller-owned context carrying a sentinel value, and assert the
+	// SAME context (not merely some non-nil one) is threaded to the behavior.
+	type ctxKey string
+	const sentinelKey ctxKey = "runloop-test-sentinel"
+	ctx := context.WithValue(context.Background(), sentinelKey, "threaded")
+
 	// RunLoop exits by returning the channel's terminating error.
-	_ = exec.RunLoop(&oneShotChannel{})
+	_ = exec.RunLoop(ctx, &oneShotChannel{})
 
 	if !behavior.called {
 		t.Fatal("behavior was never called; RunLoop did not reach the plan step")
 	}
 	if behavior.receivedCtx == nil {
 		t.Fatal("behavior received a nil context: RunLoop is passing nil to Execute")
+	}
+	if got := behavior.receivedCtx.Value(sentinelKey); got != "threaded" {
+		t.Fatalf("behavior did not receive the caller's context: Value(sentinelKey) = %v, want %q", got, "threaded")
 	}
 }

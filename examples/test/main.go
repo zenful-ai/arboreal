@@ -1,6 +1,10 @@
 package main
 
-import "github.com/zenful-ai/arboreal"
+import (
+	"context"
+
+	"github.com/zenful-ai/arboreal"
+)
 
 func main() {
 
@@ -16,7 +20,7 @@ func main() {
 
 	exec := arboreal.CreateTodoListExecutive("Chat Bot", "Simple chat bot thingy", &chatBehavior)
 
-	err := exec.RunLoop(arboreal.TerminalChannel{})
+	err := exec.RunLoop(context.Background(), arboreal.TerminalChannel{})
 
 	if err != nil {
 		panic(err)

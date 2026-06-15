@@ -25,7 +25,11 @@ go get github.com/zenful-ai/arboreal
 ```go
 package main
 
-import "github.com/zenful-ai/arboreal"
+import (
+    "context"
+
+    "github.com/zenful-ai/arboreal"
+)
 
 func main() {
     // Create a behavior tree for a chat bot
@@ -50,7 +54,7 @@ func main() {
     )
 
     // Run the bot
-    err := exec.RunLoop(arboreal.TerminalChannel{})
+    err := exec.RunLoop(context.Background(), arboreal.TerminalChannel{})
     if err != nil {
         panic(err)
     }
