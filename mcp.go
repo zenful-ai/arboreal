@@ -159,6 +159,40 @@ func (m *MCPClientMux) AddInMemoryServer(ctx context.Context, transport mcp.Tran
 	return m.addSessionMetadata(ctx, session)
 }
 
+// StreamableHTTPOptions configures a Streamable HTTP MCP connection. It carries
+// a single field today but is a struct so non-auth transport knobs can be added
+// later without changing AddStreamableHTTPServer's signature.
+type StreamableHTTPOptions struct {
+	// HTTPClient is the client used for transport requests; its RoundTripper is
+	// where authentication (and any other request customization) lives.
+	// nil => http.DefaultClient. The *http.Client is the universal auth seam;
+	// no auth scheme is privileged by this API.
+	HTTPClient *http.Client
+}
+
+// AddStreamableHTTPServer connects to a remote MCP server over the Streamable
+// HTTP transport and registers its tools on the mux. Pass opts.HTTPClient (e.g.
+// the client from NewBearerHTTPClient(token)) to authenticate; nil opts / nil
+// client uses http.DefaultClient.
+func (m *MCPClientMux) AddStreamableHTTPServer(ctx context.Context, baseURL string, opts *StreamableHTTPOptions) error {
+	var httpClient *http.Client
+	if opts != nil {
+		httpClient = opts.HTTPClient
+	}
+
+	transport := mcp.NewStreamableClientTransport(baseURL, &mcp.StreamableClientTransportOptions{
+		HTTPClient: httpClient, // nil is valid; the SDK falls back to http.DefaultClient
+	})
+
+	session, err := m.client.Connect(ctx, transport)
+	if err != nil {
+		return err
+	}
+
+	m.sessions = append(m.sessions, session)
+	return m.addSessionMetadata(ctx, session)
+}
+
 func (m *MCPClientMux) AddSSEServer(ctx context.Context, baseURL string) error {
 	transport := mcp.NewSSEClientTransport(baseURL, nil)
 
