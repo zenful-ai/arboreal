@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zenful-ai/arboreal/llm"
@@ -180,4 +182,51 @@ func NewMCPClientMux() *MCPClientMux {
 	m.toolMap = make(map[string]*mcp.Tool)
 
 	return &m
+}
+
+// bearerRoundTripper attaches "Authorization: Bearer <token>" to every request.
+// base nil => http.DefaultTransport. The token is non-empty by construction:
+// NewBearerTransport (and NewBearerHTTPClient, built on it) are the only ways to
+// build one, and both reject an empty token.
+type bearerRoundTripper struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (b bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := b.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	// Clone before mutating: a RoundTripper must not modify the input request.
+	r := req.Clone(req.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token)
+	return base.RoundTrip(r)
+}
+
+// NewBearerTransport wraps base in a RoundTripper that adds
+// "Authorization: Bearer <token>" to every request, or returns an error if token
+// is empty. base nil => http.DefaultTransport. Use it to layer bearer auth onto
+// an existing *http.Client without discarding its current transport:
+//
+//	c.Transport, err = arboreal.NewBearerTransport(token, c.Transport)
+func NewBearerTransport(token string, base http.RoundTripper) (http.RoundTripper, error) {
+	if token == "" {
+		return nil, errors.New("arboreal: bearer token must not be empty")
+	}
+	return bearerRoundTripper{token: token, base: base}, nil
+}
+
+// NewBearerHTTPClient returns a new *http.Client that adds a bearer token to
+// every request, or an error if token is empty. Pass it as
+// StreamableHTTPOptions.HTTPClient for bearer-authenticated MCP servers. Callers
+// who already have a configured *http.Client should use NewBearerTransport to
+// layer bearer auth onto it instead. Bearer has no special status in the connect
+// API; other schemes supply their own *http.Client.
+func NewBearerHTTPClient(token string) (*http.Client, error) {
+	rt, err := NewBearerTransport(token, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: rt}, nil
 }
