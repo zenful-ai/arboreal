@@ -14,7 +14,7 @@ var mcpNamespaceExport = LuaTypeExport{
 }
 
 func arborealToolCall(l *lua.LState) int {
-	client, ok := l.Context().Value("arboreal_mcp_client").(*arboreal.MCPClientMux)
+	client, ok := arboreal.MCPClientFromContext(l.Context())
 	if !ok {
 		l.RaiseError("No MCP client found")
 		return 0

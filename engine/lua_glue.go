@@ -178,7 +178,7 @@ func InitializeRuntime(script string, version int, options *RuntimeOptions) (*Ru
 
 	// MCP Context
 	if options.MCPClient != nil {
-		ctx = context.WithValue(ctx, "arboreal_mcp_client", options.MCPClient)
+		ctx = arboreal.WithMCPClient(ctx, options.MCPClient)
 	}
 
 	// TODO: Handle cancel

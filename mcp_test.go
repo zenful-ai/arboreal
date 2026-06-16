@@ -123,3 +123,18 @@ func TestAddStreamableHTTPServer_RegistersToolsAndSendsBearer(t *testing.T) {
 		t.Fatalf("server received Authorization %q, want %q", gotAuth, "Bearer secret-token")
 	}
 }
+
+func TestMCPClientContext(t *testing.T) {
+	mux := NewMCPClientMux()
+
+	// Round-trip: a mux stored with WithMCPClient is read back as the same mux.
+	ctx := WithMCPClient(context.Background(), mux)
+	if got, ok := MCPClientFromContext(ctx); !ok || got != mux {
+		t.Fatalf("MCPClientFromContext after WithMCPClient = (%p, %v), want (%p, true)", got, ok, mux)
+	}
+
+	// Absent: an empty context yields (nil, false).
+	if got, ok := MCPClientFromContext(context.Background()); ok || got != nil {
+		t.Fatalf("MCPClientFromContext(empty) = (%v, %v), want (nil, false)", got, ok)
+	}
+}

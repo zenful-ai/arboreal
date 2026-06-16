@@ -220,6 +220,27 @@ func NewMCPClientMux() *MCPClientMux {
 	return &m
 }
 
+// contextKey is an unexported type for context keys defined in this package,
+// preventing collisions with keys from other packages.
+type contextKey string
+
+const mcpClientContextKey contextKey = "arboreal_mcp_client"
+
+// WithMCPClient returns a copy of ctx carrying the MCP client mux, ready to pass
+// to RunLoop / Execute so the tool-calling state can reach it.
+func WithMCPClient(ctx context.Context, mux *MCPClientMux) context.Context {
+	return context.WithValue(ctx, mcpClientContextKey, mux)
+}
+
+// MCPClientFromContext returns the MCP client mux stored by WithMCPClient, if any.
+func MCPClientFromContext(ctx context.Context) (*MCPClientMux, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	mux, ok := ctx.Value(mcpClientContextKey).(*MCPClientMux)
+	return mux, ok
+}
+
 // bearerRoundTripper attaches "Authorization: Bearer <token>" to every request.
 // base nil => http.DefaultTransport. The token is non-empty by construction:
 // NewBearerTransport (and NewBearerHTTPClient, built on it) are the only ways to
