@@ -193,6 +193,8 @@ func (m *MCPClientMux) AddStreamableHTTPServer(ctx context.Context, baseURL stri
 	return m.addSessionMetadata(ctx, session)
 }
 
+// TODO: no auth seam — add an SSEOptions{HTTPClient} mirroring
+// AddStreamableHTTPServer
 func (m *MCPClientMux) AddSSEServer(ctx context.Context, baseURL string) error {
 	transport := mcp.NewSSEClientTransport(baseURL, nil)
 
