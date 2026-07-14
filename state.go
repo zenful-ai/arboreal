@@ -399,13 +399,9 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 
 			var client *MCPClientMux
 			if options.AllowTools {
-				c := ctx.Value("arboreal_mcp_client")
-				if c != nil {
-					var ok bool
-					client, ok = c.(*MCPClientMux)
-					if ok {
-						request.Tools = client.Tools()
-					}
+				if c, ok := MCPClientFromContext(ctx); ok {
+					client = c
+					request.Tools = client.Tools()
 				}
 			}
 

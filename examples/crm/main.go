@@ -220,7 +220,7 @@ func main() {
 		OutOfBoundsHandler: arboreal.CannedResponseState("Sorry, but I can only store and retrieve information about clients."),
 	}
 
-	err = executive.RunLoop(&arboreal.TerminalChannel{})
+	err = executive.RunLoop(context.Background(), &arboreal.TerminalChannel{})
 	if err != nil {
 		log.Fatal(err)
 	}

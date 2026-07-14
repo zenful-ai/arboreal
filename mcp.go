@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zenful-ai/arboreal/llm"
@@ -157,6 +159,42 @@ func (m *MCPClientMux) AddInMemoryServer(ctx context.Context, transport mcp.Tran
 	return m.addSessionMetadata(ctx, session)
 }
 
+// StreamableHTTPOptions configures a Streamable HTTP MCP connection. It carries
+// a single field today but is a struct so non-auth transport knobs can be added
+// later without changing AddStreamableHTTPServer's signature.
+type StreamableHTTPOptions struct {
+	// HTTPClient is the client used for transport requests; its RoundTripper is
+	// where authentication (and any other request customization) lives.
+	// nil => http.DefaultClient. The *http.Client is the universal auth seam;
+	// no auth scheme is privileged by this API.
+	HTTPClient *http.Client
+}
+
+// AddStreamableHTTPServer connects to a remote MCP server over the Streamable
+// HTTP transport and registers its tools on the mux. Pass opts.HTTPClient (e.g.
+// the client from NewBearerHTTPClient(token)) to authenticate; nil opts / nil
+// client uses http.DefaultClient.
+func (m *MCPClientMux) AddStreamableHTTPServer(ctx context.Context, baseURL string, opts *StreamableHTTPOptions) error {
+	var httpClient *http.Client
+	if opts != nil {
+		httpClient = opts.HTTPClient
+	}
+
+	transport := mcp.NewStreamableClientTransport(baseURL, &mcp.StreamableClientTransportOptions{
+		HTTPClient: httpClient, // nil is valid; the SDK falls back to http.DefaultClient
+	})
+
+	session, err := m.client.Connect(ctx, transport)
+	if err != nil {
+		return err
+	}
+
+	m.sessions = append(m.sessions, session)
+	return m.addSessionMetadata(ctx, session)
+}
+
+// TODO: no auth seam — add an SSEOptions{HTTPClient} mirroring
+// AddStreamableHTTPServer
 func (m *MCPClientMux) AddSSEServer(ctx context.Context, baseURL string) error {
 	transport := mcp.NewSSEClientTransport(baseURL, nil)
 
@@ -180,4 +218,72 @@ func NewMCPClientMux() *MCPClientMux {
 	m.toolMap = make(map[string]*mcp.Tool)
 
 	return &m
+}
+
+// contextKey is an unexported type for context keys defined in this package,
+// preventing collisions with keys from other packages.
+type contextKey string
+
+const mcpClientContextKey contextKey = "arboreal_mcp_client"
+
+// WithMCPClient returns a copy of ctx carrying the MCP client mux, ready to pass
+// to RunLoop / Execute so the tool-calling state can reach it.
+func WithMCPClient(ctx context.Context, mux *MCPClientMux) context.Context {
+	return context.WithValue(ctx, mcpClientContextKey, mux)
+}
+
+// MCPClientFromContext returns the MCP client mux stored by WithMCPClient, if any.
+func MCPClientFromContext(ctx context.Context) (*MCPClientMux, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	mux, ok := ctx.Value(mcpClientContextKey).(*MCPClientMux)
+	return mux, ok
+}
+
+// bearerRoundTripper attaches "Authorization: Bearer <token>" to every request.
+// base nil => http.DefaultTransport. The token is non-empty by construction:
+// NewBearerTransport (and NewBearerHTTPClient, built on it) are the only ways to
+// build one, and both reject an empty token.
+type bearerRoundTripper struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (b bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := b.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	// Clone before mutating: a RoundTripper must not modify the input request.
+	r := req.Clone(req.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token)
+	return base.RoundTrip(r)
+}
+
+// NewBearerTransport wraps base in a RoundTripper that adds
+// "Authorization: Bearer <token>" to every request, or returns an error if token
+// is empty. base nil => http.DefaultTransport. Use it to layer bearer auth onto
+// an existing *http.Client without discarding its current transport:
+//
+//	c.Transport, err = arboreal.NewBearerTransport(token, c.Transport)
+func NewBearerTransport(token string, base http.RoundTripper) (http.RoundTripper, error) {
+	if token == "" {
+		return nil, errors.New("arboreal: bearer token must not be empty")
+	}
+	return bearerRoundTripper{token: token, base: base}, nil
+}
+
+// NewBearerHTTPClient returns a new *http.Client that adds a bearer token to
+// every request, or an error if token is empty. Pass it as
+// StreamableHTTPOptions.HTTPClient for bearer-authenticated MCP servers. Callers
+// who already have a configured *http.Client should use NewBearerTransport to
+// layer bearer auth onto it instead. Bearer has no special status in the connect
+// API; other schemes supply their own *http.Client.
+func NewBearerHTTPClient(token string) (*http.Client, error) {
+	rt, err := NewBearerTransport(token, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: rt}, nil
 }

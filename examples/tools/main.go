@@ -33,7 +33,7 @@ func main() {
 	mcpClient := arboreal.NewMCPClientMux()
 	mcpClient.AddInMemoryServer(context.Background(), y)
 
-	ctx := context.WithValue(context.Background(), "arboreal_mcp_client", mcpClient)
+	ctx := arboreal.WithMCPClient(context.Background(), mcpClient)
 
 	state := arboreal.LLMCompletionState(arboreal.LLMCompletionOptions{
 		Model:      llm.ClaudeHaiku,

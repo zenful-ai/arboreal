@@ -133,7 +133,7 @@ A simple example response could be:
 ]
 `
 
-func (e *TodoListExecutive) Plan(messages AnnotatedMessages) {
+func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages) {
 	var data = struct {
 		Preamble  string
 		Behaviors []Behavior
@@ -173,7 +173,7 @@ func (e *TodoListExecutive) Plan(messages AnnotatedMessages) {
 	history, s := LLMCompletionState(LLMCompletionOptions{
 		System:     buf.String() + extraContext,
 		Annotation: "plan",
-	}).Lambda(context.Background(), history)
+	}).Lambda(ctx, history)
 
 	if e, ok := s.(*ErrorSignal); ok {
 		panic(e)
@@ -415,8 +415,8 @@ func (e *TodoListExecutive) Execute(ctx context.Context, messages AnnotatedMessa
 
 			e.planDepth += 1
 
-			e.Plan(messages)
-			e.Execute(nil, messages)
+			e.Plan(ctx, messages)
+			e.Execute(ctx, messages)
 
 			return
 		}
@@ -512,7 +512,7 @@ func (e *TodoListExecutive) Call(ctx context.Context, messages AnnotatedMessages
 	})
 
 	if len(e.plan) <= 0 {
-		e.Plan(messages)
+		e.Plan(ctx, messages)
 	} else {
 		// FIXME: This may need to be tailored to each behavior
 		for _, p := range e.plan {
@@ -541,7 +541,7 @@ func (e *TodoListExecutive) Call(ctx context.Context, messages AnnotatedMessages
 	return messages, nil
 }
 
-func (e *TodoListExecutive) RunLoop(c Channel) error {
+func (e *TodoListExecutive) RunLoop(ctx context.Context, c Channel) error {
 	for {
 		cm, err := c.Receive()
 		if err != nil {
@@ -554,14 +554,14 @@ func (e *TodoListExecutive) RunLoop(c Channel) error {
 		})
 
 		if len(e.plan) == 0 {
-			e.Plan(e.History)
+			e.Plan(ctx, e.History)
 		} else {
 			for _, step := range e.plan {
 				step.Messages = append(step.Messages, *e.History.LastMessage())
 			}
 		}
 
-		e.Execute(nil, e.History)
+		e.Execute(ctx, e.History)
 
 		e.History = AppendToMessages(e.History, llm.ChatCompletionMessage{
 			Role:    llm.ChatMessageRoleAssistant,
