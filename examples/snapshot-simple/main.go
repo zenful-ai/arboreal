@@ -8,7 +8,7 @@
 //     state (history + in-flight plan) from it; otherwise start fresh, letting
 //     the executive plan a todo list from scratch for the user's message.
 //  3. Execute the plan once, print the assistant's response.
-//  4. Take a snapshot, write it to disk, and print its content.
+//  4. Take a snapshot and write it to disk.
 //
 // There is deliberately no loop: to continue the conversation, run the program
 // again — the snapshot is what carries the state between runs. For example:
@@ -137,7 +137,7 @@ func main() {
 
 	fmt.Printf("\nAssistant: %s\n", exec.History.LastMessage().Content)
 
-	// Persist the conversation for the next run and show what was stored.
+	// Persist the conversation for the next run.
 	snap, err := arboreal.TakeSnapshot(exec)
 	if err != nil {
 		panic(err)
@@ -152,5 +152,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("\nSnapshot written to %s:\n%s\n", snapshotFile, out)
+	fmt.Printf("\nSnapshot written to %s\n", snapshotFile)
 }
