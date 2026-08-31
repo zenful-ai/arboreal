@@ -61,6 +61,8 @@ func main() {
 }
 ```
 
+This example lives in [`examples/quickstart/`](examples/quickstart/) — run it with `go run ./examples/quickstart` (requires `OPENAI_TOKEN`).
+
 ## Core Concepts
 
 ### Behavior Trees
@@ -169,8 +171,13 @@ options := arboreal.LLMCompletionOptions{
 
 The `examples/` directory contains various use cases:
 
+- **Quick Start** (`examples/quickstart/`) - The chat bot from the [Quick Start](#quick-start) section above
+- **One Shot** (`examples/oneshot/`) - Plan a todo list and execute it in a single pass, without a run loop
+- **Snapshot Simple** (`examples/snapshot-simple/`) - Persist a conversation across separate process runs using snapshots
 - **Chat Bot** (`examples/test/`) - Basic conversational agent
 - **CRM Assistant** (`examples/crm/`) - Customer relationship management
+
+Run any of them with `go run ./examples/<name>` (most require `OPENAI_TOKEN` to be set).
 
 ## Contributing
 
