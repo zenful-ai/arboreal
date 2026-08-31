@@ -1,7 +1,20 @@
+// Package main is a learning-purposes example, NOT a template for real apps.
+//
+// One LLMCompletionState with AllowTools set, one MCP tool served from
+// inside the same process over an in-memory transport — no network beyond
+// the model call. The state offers the mux's tools to the model; when the
+// reply is a tool call, the state executes it, appends the call and its
+// result to the history, and asks again, until a reply has no tool calls.
+//
+// The final dump shows the whole exchange, tool messages included.
+//
+// Requires OPENAI_TOKEN to be set in the environment (the default model is
+// gpt-4o-mini via the OpenAI provider).
 package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -10,63 +23,62 @@ import (
 	"github.com/zenful-ai/arboreal/llm"
 )
 
-type Empty struct{}
-
-func getCurrentTimestamp(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[any]) (*mcp.CallToolResultFor[string], error) {
+// ANCHOR: server
+// getCurrentTimestamp is an ordinary Go function; wrapping it in an MCP
+// server is what makes it a tool — Arboreal has no other tool mechanism.
+func getCurrentTimestamp(ctx context.Context, cc *mcp.ServerSession,
+	params *mcp.CallToolParamsFor[any]) (*mcp.CallToolResultFor[string], error) {
 	return &mcp.CallToolResultFor[string]{
 		Content: []mcp.Content{&mcp.TextContent{Text: time.Now().Format(time.RFC3339)}},
 	}, nil
 }
 
+// ANCHOR_END: server
+
 func main() {
+	// ANCHOR: wiring
 	server := mcp.NewServer(&mcp.Implementation{Name: "ai.zenful", Version: "v1.0.0"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "ai.zenful/get_current_timestamp", Description: "Get the current timestamp"}, getCurrentTimestamp)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "ai.zenful/get_current_timestamp",
+		Description: "Get the current timestamp",
+	}, getCurrentTimestamp)
 
-	x, y := mcp.NewInMemoryTransports()
-
+	serverSide, clientSide := mcp.NewInMemoryTransports()
 	go func() {
-		if err := server.Run(context.Background(), x); err != nil {
+		if err := server.Run(context.Background(), serverSide); err != nil {
 			log.Fatal(err)
 		}
 	}()
 
-	mcpClient := arboreal.NewMCPClientMux()
-	mcpClient.AddInMemoryServer(context.Background(), y)
+	mux := arboreal.NewMCPClientMux()
+	if err := mux.AddInMemoryServer(context.Background(), clientSide); err != nil {
+		log.Fatal(err)
+	}
+	defer mux.Close()
 
-	ctx := arboreal.WithMCPClient(context.Background(), mcpClient)
+	// The mux travels in the context; a state only sees tools if BOTH are
+	// true: the mux is in the context AND the state sets AllowTools.
+	ctx := arboreal.WithMCPClient(context.Background(), mux)
+	// ANCHOR_END: wiring
 
+	// ANCHOR: call
 	state := arboreal.LLMCompletionState(arboreal.LLMCompletionOptions{
-		Model:      llm.ClaudeHaiku,
+		System:     "Answer using the tools available to you.",
 		AllowTools: true,
 	})
 
-	var history arboreal.AnnotatedMessages
-	var t arboreal.TerminalChannel
+	history := arboreal.AppendToMessages(nil, llm.ChatCompletionMessage{
+		Role:    llm.ChatMessageRoleUser,
+		Content: "What is the exact current timestamp?",
+	})
 
-	for {
-		var sig arboreal.Signal
-
-		m, err := t.Receive()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		history = arboreal.AppendToMessages(history, llm.ChatCompletionMessage{
-			Role:    llm.ChatMessageRoleUser,
-			Content: m.Content,
-		})
-
-		history, sig = state.Call(ctx, history)
-
-		if _, ok := sig.(*arboreal.ErrorSignal); ok {
-			log.Fatal(sig.Description())
-		}
-
-		err = t.Send(&arboreal.ChannelMessage{
-			Content: history.LastMessage().Content,
-		})
-		if err != nil {
-			log.Fatal(err)
-		}
+	history, sig := state.Call(ctx, history)
+	if err, ok := sig.(*arboreal.ErrorSignal); ok {
+		log.Fatal(err.Description())
 	}
+
+	for i, m := range history {
+		fmt.Printf("[%d] %-9s %q\n", i, m.Role, m.Content)
+	}
+	// ANCHOR_END: call
 }

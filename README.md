@@ -174,6 +174,15 @@ The `examples/` directory contains various use cases:
 - **Quick Start** (`examples/quickstart/`) - The chat bot from the [Quick Start](#quick-start) section above
 - **One Shot** (`examples/oneshot/`) - Plan a todo list and execute it in a single pass, without a run loop
 - **Snapshot Simple** (`examples/snapshot-simple/`) - Persist a conversation across separate process runs using snapshots
+- **Little Spy** (`examples/little-spy/`) - Extract facts about the user into annotations, one run at a time, persisted with snapshots
+- **Signals** (`examples/signals/`) - How each signal steers a behavior tree's traversal; runs without any API token
+- **State Direct** (`examples/state-direct/`) - Call one `LLMCompletionState` by hand and inspect what it does to the history
+- **Tree Loop** (`examples/tree-loop/`) - Drive a behavior tree with your own loop instead of an executive; shows pause/resume vs restart
+- **Poetry** (`examples/poetry/`) - An executive choosing between two behaviors, with an out-of-bounds handler for everything else
+- **One Turn** (`examples/one-turn/`) - Drive the executive one message at a time with `Call`, no run loop
+- **Trace Turn** (`examples/trace-turn/`) - The same two turns with a `Trace` channel printing what happens inside
+- **Snapshot Edges** (`examples/snapshot-edges/`) - When a snapshot records the executive and when it does not; runs without any API token
+- **Bookshelf** (`examples/bookshelf/`) - The capstone: one process run per message, snapshots for a pause that outlives the process, an MCP catalog tool and a trace drain in one program
 - **Chat Bot** (`examples/test/`) - Basic conversational agent
 - **CRM Assistant** (`examples/crm/`) - Customer relationship management
 
