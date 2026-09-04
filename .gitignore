@@ -31,10 +31,62 @@ go.work.sum
 .DS_Store
 
 *.pyc
-examples/test/test
-examples/semchunks/semchunks
 engine/engine
 examples/rag/rag
 cast/web/web
 
 cache
+
+book/book/
+
+# Example binaries: go build ./examples/<name> drops <name> in the CWD,
+# and a build inside the directory drops it next to main.go.
+/annotation-template
+examples/annotation-template/annotation-template
+/annotations-probe
+examples/annotations-probe/annotations-probe
+/bookshelf
+examples/bookshelf/bookshelf
+/crm
+examples/crm/crm
+/extra-context
+examples/extra-context/extra-context
+/get-annotation
+examples/get-annotation/get-annotation
+/little-spy
+examples/little-spy/little-spy
+/one-turn
+examples/one-turn/one-turn
+/oneshot
+examples/oneshot/oneshot
+/poetry
+examples/poetry/poetry
+/quickstart
+examples/quickstart/quickstart
+/semchunks
+examples/semchunks/semchunks
+/signals
+examples/signals/signals
+/snapshot-edges
+examples/snapshot-edges/snapshot-edges
+/snapshot-simple
+examples/snapshot-simple/snapshot-simple
+/state-direct
+examples/state-direct/state-direct
+/test
+examples/test/test
+/tools
+examples/tools/tools
+/trace-turn
+examples/trace-turn/trace-turn
+/tree-loop
+examples/tree-loop/tree-loop
+
+# Example state files, written to the CWD (repo root, or the example's dir):
+/snapshot.json
+/little-spy.json
+/bookshelf-snapshot.json
+/bookshelf-transcript.json
+examples/snapshot-simple/snapshot.json
+examples/little-spy/little-spy.json
+examples/bookshelf/bookshelf-*.json
