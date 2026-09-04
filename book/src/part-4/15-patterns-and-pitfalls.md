@@ -63,9 +63,10 @@ Patterns are indexed by intent — what you are trying to build. Each is a named
 | Symptom | Cause | What to do | Chapter |
 |---|---|---|---|
 | A model's parallel tool calls silently produce only one result | The `AllowTools` loop hardcodes `ToolCalls[0]`; extra calls ride along unexecuted in the appended assistant message | Prompt for one tool call at a time, or expose only tools that make sense that way | [Ch 12](../part-3/12-tools-via-mcp.md) |
-| A model "refuses" to use a tool it was told about | `AllowTools: true` with no `WithMCPClient` mux in the context silently offers no tools at all | Check the context for a mux first when a model won't call a tool | [Ch 12](../part-3/12-tools-via-mcp.md) |
+| A model "refuses" to use a tool it was told about | `AllowTools: true` with no `WithMCPClient` mux in the context silently offers no tools at all (with `Tools` empty; a named list errors instead) | Check the context for a mux first when a model won't call a tool | [Ch 12](../part-3/12-tools-via-mcp.md) |
 | The planner or an annotation-mode state never gets access to tools | Only a state with `AllowTools` set reaches the mux; every other state ignores it entirely | Put tool use only in states that explicitly set `AllowTools` | [Ch 12](../part-3/12-tools-via-mcp.md) |
 | Two servers export a tool with the same name and one silently wins | `MCPClientMux` files each tool by name into two maps; a later registration overwrites both entries with no error | Namespace tool names per server; check `Tools()` after every `Add*` | [Ch 12](../part-3/12-tools-via-mcp.md) |
+| A state offers the model tools it should never call (the mux is shared, the tree is not) | `AllowTools` offers every tool on the mux | Set `Tools` on the state to the names it needs; anything else is never sent and refused if named | [Ch 12](../part-3/12-tools-via-mcp.md) |
 
 ### Tracing
 
@@ -144,9 +145,9 @@ The test is one line per lambda, and it is cheap enough that there is no excuse:
 
 The `AllowTools` loop in `LLMCompletionState` executes `ToolCalls[0]` and nothing else. A reply that asks for three tools gets one of them run; the other two survive only as unexecuted entries inside the assistant message the loop appends — no result, no error, no trace line. Under the default OpenAI provider this is mostly theoretical, because it still speaks the legacy single-function-call API and can surface only one call per reply anyway, but a provider that does parallel calls hits the limit for real, and silently.
 
-Two neighboring silences compound it. `MCPClientMux` files every tool by name into two maps — name to definition, name to session — so two servers exporting the same tool name collide and the later registration wins both; nothing errors, and the losing server's tool is simply unreachable. And a state with `AllowTools: true` and no mux in the context offers the model no tools at all, which is why "the model refuses to use the tool" is nearly always a context problem rather than a prompt problem. Name your tools uniquely across servers, check `Tools()` after wiring, and check the context before rewriting the prompt.
+Two neighboring silences compound it. `MCPClientMux` files every tool by name into two maps — name to definition, name to session — so two servers exporting the same tool name collide and the later registration wins both; nothing errors, and the losing server's tool is simply unreachable. And a state with `AllowTools: true`, `Tools` empty, and no mux in the context offers the model no tools at all, which is why "the model refuses to use the tool" is nearly always a context problem rather than a prompt problem. Name your tools uniquely across servers, check `Tools()` after wiring, and check the context before rewriting the prompt.
 
-The design conclusion is the one [Chapter 12](../part-3/12-tools-via-mcp.md) draws: prompt and design for one tool call at a time. Ask for a single lookup per round and let the loop iterate — the state asks, executes, feeds the result back, and asks again, and from outside a state that ran three model rounds returns exactly like one that ran one. A tool surface built around that cadence never meets the limit.
+The design conclusion is the one [Chapter 12](../part-3/12-tools-via-mcp.md) draws: prompt and design for one tool call at a time. Ask for a single lookup per round and let the loop iterate — the state asks, executes, feeds the result back, and asks again, and from outside a state that ran three model rounds returns exactly like one that ran one. A tool surface built around that cadence never meets the limit. `Tools` on the state is how you build it: name the tools that make sense one at a time, and the mux's other tools stay out of the model's sight.
 
 ## Patterns
 

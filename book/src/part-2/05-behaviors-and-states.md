@@ -125,13 +125,14 @@ type LLMCompletionOptions struct {
     Annotation        string   // if set: extract into this annotation, append nothing
     Terminal          bool     // return TerminalSignal after the reply
     AllowTools        bool     // offer MCP tools from the context (Part III)
+    Tools             []string // names to offer; empty = every tool on the mux (Part III)
 }
 ```
 
 `Name`, `Description`, `ClientID` and `Id` fill the struct's metadata fields and play no part in the call. The rest configure the lambda, which runs in this order.
 
 1. `System` is parsed and rendered with `AnnotationTemplate` against the history the state was called with, even when it is empty. A template that fails to parse or render returns the history untouched with an `ErrorSignal`.
-2. If `Annotation` is set, the lambda hands the rendered prompt to `evalIntoAnnotation` and returns whatever it returns. Chapter 4 covers that path; none of the steps below run.
+2. If `Annotation` is set, the lambda hands the rendered prompt to `evalIntoAnnotation` and returns whatever it returns; with `Tools` also set it returns an `ErrorSignal` instead, since the annotation path never offers tools. Chapter 4 covers the annotation path; none of the steps below run.
 3. `CreateModelProvider(options.Model, llm.ProviderOpenAI)` picks a provider from the prefix of the model URI, defaulting to OpenAI when there is no recognized prefix. Failure to construct one, which for Anthropic means a missing `ANTHROPIC_TOKEN`, returns an `ErrorSignal` of type `StateErrorTypeUnrecoverable`.
 4. `ExtraContext`, if any, is appended to the rendered prompt.
 5. If `System` is non-empty, the assembled prompt becomes message 0: when the history already starts with a system message its `Content` is overwritten in place, otherwise a new system message with an empty, non-nil annotation map is prepended. When `System` is empty this step is skipped, and with it the extra context, which is the catch Chapter 4 noted.
@@ -139,7 +140,7 @@ type LLMCompletionOptions struct {
 7. The reply is appended as a new `AnnotatedMessage` built from `res.Message`. It is a struct literal, so its `Annotations` map is `nil`; Chapter 4 said what that means for anyone who writes to it.
 8. The signal is `nil`, or `&TerminalSignal{}` if `Terminal` is set. The flag changes nothing about the call itself; it matters only inside a tree, where `BehaviorTree.Call` ends the walk on it (Chapters 6 and 7 explain what happens to it after that).
 
-`AllowTools` inserts a loop between steps 6 and 7: if an `MCPClientMux` is in the context, the request carries the client's tools, and the first tool call in each reply is executed and fed back until the model answers without one. Part III covers it.
+`AllowTools` inserts a loop between steps 6 and 7: if an `MCPClientMux` is in the context, the request carries the client's tools — or, when `Tools` is set, only the tools it names, in that order — and the first tool call in each reply is executed and fed back until the model answers without one. `Tools` narrows the offered list to the names given; naming one the mux lacks, or setting it on a state that cannot offer tools (no `AllowTools`, no mux, or annotation mode), is an error before the model is called. Part III covers it.
 
 ### Model URIs
 
