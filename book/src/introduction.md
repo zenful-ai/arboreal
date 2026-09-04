@@ -10,7 +10,7 @@ It assumes fluent Go: the chapters do not stop to explain goroutines, interfaces
 
 ## What you need
 
-- Go 1.23 or newer.
+- Go 1.25 or newer.
 - `go get github.com/zenful-ai/arboreal`
 - An OpenAI API key in `OPENAI_TOKEN`. Every example in this book uses the framework's default model, `gpt-4o-mini`, through the OpenAI provider, so this is the only credential you need. (A couple of examples — `examples/signals`, `examples/snapshot-edges` — need no key at all.)
 

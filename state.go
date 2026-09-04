@@ -21,7 +21,29 @@ import (
 	"github.com/zenful-ai/arboreal/llm"
 )
 
-var seedRNGOnce sync.Once
+// ZEN_SEED_RNG selects a deterministic generator for GenerateStringIdentifier.
+// It is a private *rand.Rand rather than math/rand's package-level generator
+// because, once the main module's go directive is 1.24 or newer (GODEBUG
+// randseednop=1), math/rand.Seed is a no-op and the global generator can no
+// longer be made deterministic; a library cannot override that for its
+// consumers, so it must not depend on it.
+var (
+	seedRNGOnce sync.Once
+	seededRNG   *insecureRand.Rand
+	seededRNGMu sync.Mutex
+)
+
+// insecureRandInt draws from the seeded generator when ZEN_SEED_RNG parsed as
+// an integer, and otherwise from math/rand's auto-seeded global generator,
+// which is what an unparseable seed has always fallen back to.
+func insecureRandInt() int {
+	seededRNGMu.Lock()
+	defer seededRNGMu.Unlock()
+	if seededRNG == nil {
+		return insecureRand.Int()
+	}
+	return seededRNG.Int()
+}
 
 func MonotonicIdGenerator(prefix string) func() string {
 	var nextId uint64 = 0
@@ -49,10 +71,18 @@ func GenerateStringIdentifier(prefix string, length int) (string, error) {
 		seedRNGOnce.Do(func() {
 			randomSeed, err := strconv.Atoi(s)
 			if err != nil {
+				// Not an initialization but a reset: seedRNGOnce can be re-armed
+				// (the tests do), and an unparseable seed must then fall back to
+				// the global generator rather than keep an earlier seeded one.
+				seededRNGMu.Lock()
+				seededRNG = nil
+				seededRNGMu.Unlock()
 				return
 			}
 
-			insecureRand.Seed(int64(randomSeed))
+			seededRNGMu.Lock()
+			seededRNG = insecureRand.New(insecureRand.NewSource(int64(randomSeed)))
+			seededRNGMu.Unlock()
 		})
 		useInsecureRNG = true
 	}
@@ -62,7 +92,7 @@ func GenerateStringIdentifier(prefix string, length int) (string, error) {
 		var randomNumber *big.Int
 
 		if useInsecureRNG {
-			randomNumber = big.NewInt(int64(insecureRand.Int()))
+			randomNumber = big.NewInt(int64(insecureRandInt()))
 		} else {
 			randomNumber, err = rand.Int(rand.Reader, mx)
 			if err != nil {

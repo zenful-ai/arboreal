@@ -73,9 +73,9 @@ type bookQuery struct {
 	Title string `json:"title"`
 }
 
-func lookupBook(ctx context.Context, cc *mcp.ServerSession,
-	params *mcp.CallToolParamsFor[bookQuery]) (*mcp.CallToolResultFor[string], error) {
-	q := strings.ToLower(strings.TrimSpace(params.Arguments.Title))
+func lookupBook(ctx context.Context, req *mcp.CallToolRequest,
+	args bookQuery) (*mcp.CallToolResult, any, error) {
+	q := strings.ToLower(strings.TrimSpace(args.Title))
 	var lines []string
 	if q != "" {
 		for _, b := range catalog {
@@ -93,9 +93,9 @@ func lookupBook(ctx context.Context, cc *mcp.ServerSession,
 	if len(lines) > 0 {
 		text = strings.Join(lines, "\n")
 	}
-	return &mcp.CallToolResultFor[string]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
-	}, nil
+	}, nil, nil
 }
 
 // ANCHOR_END: tool

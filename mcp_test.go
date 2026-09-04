@@ -2,12 +2,14 @@ package arboreal
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/zenful-ai/arboreal/llm"
 )
 
 // recordingRoundTripper is a base transport that records that it ran and the
@@ -67,8 +69,8 @@ func TestAddStreamableHTTPServer_RegistersToolsAndSendsBearer(t *testing.T) {
 	// In-process MCP server exposing one tool.
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "v1.0.0"}, nil)
 	mcp.AddTool(server, &mcp.Tool{Name: "greet", Description: "say hi"},
-		func(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResultFor[any], error) {
-			return &mcp.CallToolResultFor[any]{Content: []mcp.Content{&mcp.TextContent{Text: "hi"}}}, nil
+		func(ctx context.Context, req *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "hi"}}}, nil, nil
 		})
 
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
@@ -136,5 +138,87 @@ func TestMCPClientContext(t *testing.T) {
 	// Absent: an empty context yields (nil, false).
 	if got, ok := MCPClientFromContext(context.Background()); ok || got != nil {
 		t.Fatalf("MCPClientFromContext(empty) = (%v, %v), want (nil, false)", got, ok)
+	}
+}
+
+// titleQuery is the typed input of the tool used by
+// TestTools_ConvertsInputSchema. The SDK infers its JSON schema from the
+// struct: an object with one string property, "title".
+type titleQuery struct {
+	Title string `json:"title"`
+}
+
+// TestTools_ConvertsInputSchema covers the one behavior the v1 SDK forces on
+// the mux: a tool's input schema arrives from the client session as a plain
+// map[string]any and must reach llm.ChatTool as a typed *jsonschema.Schema.
+func TestTools_ConvertsInputSchema(t *testing.T) {
+	// The server goroutine is joined by the first (hence last-run) defer,
+	// after mux.Close and cancel have ended the session, so the test cannot
+	// leak it or hang on it.
+	done := make(chan struct{})
+	defer func() { <-done }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "schema-server", Version: "v1.0.0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "lookup", Description: "look up a title"},
+		func(ctx context.Context, req *mcp.CallToolRequest, q titleQuery) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: q.Title}}}, nil, nil
+		})
+
+	serverSide, clientSide := mcp.NewInMemoryTransports()
+	go func() {
+		defer close(done)
+		_ = server.Run(ctx, serverSide)
+	}()
+
+	mux := NewMCPClientMux()
+	defer mux.Close()
+	if err := mux.AddInMemoryServer(ctx, clientSide); err != nil {
+		t.Fatalf("AddInMemoryServer returned error: %v", err)
+	}
+
+	tools := mux.Tools()
+	if len(tools) != 1 {
+		t.Fatalf("got %d tools, want 1: %+v", len(tools), tools)
+	}
+	tool := tools[0]
+	if tool.Name != "lookup" || tool.Type != llm.ChatToolTypeFunction {
+		t.Fatalf("got tool %q of type %q, want %q of type %q", tool.Name, tool.Type, "lookup", llm.ChatToolTypeFunction)
+	}
+	if tool.Description != "look up a title" {
+		t.Fatalf("got Description %q, want %q", tool.Description, "look up a title")
+	}
+	if tool.InputSchema == nil {
+		t.Fatal("InputSchema is nil; the wire schema was not converted")
+	}
+	if tool.InputSchema.Type != "object" {
+		t.Fatalf("InputSchema.Type = %q, want %q", tool.InputSchema.Type, "object")
+	}
+	prop, ok := tool.InputSchema.Properties["title"]
+	if !ok {
+		t.Fatalf("InputSchema.Properties has no %q entry: %+v", "title", tool.InputSchema.Properties)
+	}
+	if prop.Type != "string" {
+		t.Fatalf("Properties[%q].Type = %q, want %q", "title", prop.Type, "string")
+	}
+
+	// The outgoing direction: llm/openai.go hands this schema to the provider
+	// as FunctionDefinition.Parameters, so the converted value must serialize
+	// as a structurally valid object schema (Schema.MarshalJSON validates it).
+	out, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		t.Fatalf("marshal InputSchema: %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(out, &wire); err != nil {
+		t.Fatalf("marshaled InputSchema %s is not a JSON object: %v", out, err)
+	}
+	if wire["type"] != "object" {
+		t.Fatalf("marshaled InputSchema %s has type %v, want %q", out, wire["type"], "object")
+	}
+	props, _ := wire["properties"].(map[string]any)
+	if _, ok := props["title"]; !ok {
+		t.Fatalf("marshaled InputSchema %s has no %q property", out, "title")
 	}
 }
