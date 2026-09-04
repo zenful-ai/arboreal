@@ -10,6 +10,7 @@ import (
 	"math/big"
 	insecureRand "math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -343,6 +344,16 @@ func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions)
 	history.AddTraceInformation(options.Annotation)
 
 	return history, nil
+}
+
+// allowedToolCall reports whether the AllowTools loop may execute a call to
+// name under the given LLMCompletionOptions.Tools. An empty list is no
+// narrowing: every tool the mux knows may run, as before the option existed.
+// Otherwise only a listed name may run. The list is exactly what Select
+// offered the model, so the offered list is the only thing the loop ever
+// executes, whatever the mux is connected to.
+func allowedToolCall(tools []string, name string) bool {
+	return len(tools) == 0 || slices.Contains(tools, name)
 }
 
 func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
