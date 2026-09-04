@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -93,6 +96,32 @@ func (m *MCPClientMux) Tools() []llm.ChatTool {
 	}
 
 	return tools
+}
+
+// Select returns the named tools, in the order given. It is what a state
+// with LLMCompletionOptions.Tools offers the model, so the list the model
+// sees is the list the author wrote, on every call. A name the mux does not
+// have, or a name given twice, is an error naming it and listing what the
+// mux has; the returned slice is then nil. No names yields an empty slice.
+func (m *MCPClientMux) Select(names ...string) ([]llm.ChatTool, error) {
+	tools := make([]llm.ChatTool, 0, len(names))
+	seen := make(map[string]bool, len(names))
+
+	for _, name := range names {
+		if seen[name] {
+			return nil, fmt.Errorf("tool %q selected twice", name)
+		}
+		seen[name] = true
+
+		tool, ok := m.toolMap[name]
+		if !ok {
+			available := slices.Sorted(maps.Keys(m.toolMap))
+			return nil, fmt.Errorf("tool not found: %q (available: %s)", name, strings.Join(available, ", "))
+		}
+		tools = append(tools, tool)
+	}
+
+	return tools, nil
 }
 
 func (m *MCPClientMux) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
