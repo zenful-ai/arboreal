@@ -257,7 +257,8 @@ type LLMCompletionOptions struct {
 	// tools — by the name the mux knows them, i.e. the server's name — are
 	// sent to the model, in this order, and the tool loop refuses to
 	// execute any other name. A name the mux does not have, a duplicate, a
-	// missing mux, or Tools set without AllowTools is an ErrorSignal before
+	// missing mux, Tools set without AllowTools, or Tools on a state in
+	// annotation mode (which never offers tools) is an ErrorSignal before
 	// any model call. Empty offers every tool on the mux, as before.
 	//
 	// The slice is captured by reference, like ExtraContext; do not mutate
@@ -395,6 +396,16 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 				}
 
 				system = buf.String()
+			}
+
+			// An annotation-mode state never offers tools (evalIntoAnnotation
+			// sends none), so a Tools list on one is a misconfiguration, not a
+			// request; report it like the other ways the list cannot be honored.
+			if options.Annotation != "" && len(options.Tools) > 0 {
+				return history, &ErrorSignal{
+					ErrorMessage: "Tools is set but this state is in annotation mode, which never offers tools",
+					ErrorType:    StateErrorTypeUnrecoverable,
+				}
 			}
 
 			if options.Annotation != "" {

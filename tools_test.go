@@ -2,6 +2,7 @@ package arboreal
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,9 +68,9 @@ func assertToolConfigError(t *testing.T, in, got AnnotatedMessages, sig Signal, 
 	if errSig.ErrorType != StateErrorTypeUnrecoverable {
 		t.Fatalf("ErrorType = %q, want %q", errSig.ErrorType, StateErrorTypeUnrecoverable)
 	}
-	if len(got) != len(in) || got[len(got)-1].Content != in[len(in)-1].Content {
-		t.Fatalf("history changed: got %d messages ending %q, want the %d given ending %q",
-			len(got), got[len(got)-1].Content, len(in), in[len(in)-1].Content)
+	same := func(a, b AnnotatedMessage) bool { return a.Role == b.Role && a.Content == b.Content }
+	if !slices.EqualFunc(got, in, same) {
+		t.Fatalf("history changed: got %d messages, want the %d given back unchanged", len(got), len(in))
 	}
 }
 
@@ -96,6 +97,15 @@ func TestTools_UnknownName(t *testing.T) {
 		Tools:      []string{"alpha", "delta"},
 	})
 	assertToolConfigError(t, in, got, sig, `"delta"`)
+}
+
+func TestTools_AnnotationMode(t *testing.T) {
+	in, got, sig := callState(t, context.Background(), LLMCompletionOptions{
+		Annotation: "x",
+		AllowTools: true,
+		Tools:      []string{"alpha"},
+	})
+	assertToolConfigError(t, in, got, sig, "annotation mode")
 }
 
 // TestAllowTools_EmptyToolsNoMuxStaysSilent pins the backward-compatibility
