@@ -232,6 +232,7 @@ func buildExecutive() *arboreal.TodoListExecutive {
 			"Some user-role messages are third-person notes from a planning system " +
 			"describing what the customer said; treat them as the customer's own words.",
 		AllowTools: true,
+		Tools:      []string{"bookshelf/lookup_book"},
 	})
 	availability.AddState(&lookupState)
 
