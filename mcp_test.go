@@ -319,10 +319,8 @@ func TestSelect(t *testing.T) {
 		if !strings.Contains(err.Error(), `"delta"`) {
 			t.Fatalf("error %q does not name the unknown tool", err)
 		}
-		for _, name := range []string{"alpha", "beta", "gamma"} {
-			if !strings.Contains(err.Error(), name) {
-				t.Fatalf("error %q does not list available tool %q", err, name)
-			}
+		if !strings.Contains(err.Error(), "available: alpha, beta, gamma") {
+			t.Fatalf("error %q does not list the available tools, sorted", err)
 		}
 	})
 
@@ -344,8 +342,8 @@ func TestSelect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Select() returned error: %v", err)
 		}
-		if len(tools) != 0 {
-			t.Fatalf("Select() returned %v, want an empty list", namesOf(tools))
+		if tools == nil || len(tools) != 0 {
+			t.Fatalf("Select() returned %#v, want an empty, non-nil list", tools)
 		}
 	})
 }

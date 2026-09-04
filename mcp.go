@@ -101,8 +101,9 @@ func (m *MCPClientMux) Tools() []llm.ChatTool {
 // Select returns the named tools, in the order given. It is what a state
 // with LLMCompletionOptions.Tools offers the model, so the list the model
 // sees is the list the author wrote, on every call. A name the mux does not
-// have, or a name given twice, is an error naming it and listing what the
-// mux has; the returned slice is then nil. No names yields an empty slice.
+// have is an error naming it and listing what the mux has; a name given
+// twice is an error naming it. In both cases the returned slice is nil. No
+// names yields an empty slice.
 func (m *MCPClientMux) Select(names ...string) ([]llm.ChatTool, error) {
 	tools := make([]llm.ChatTool, 0, len(names))
 	seen := make(map[string]bool, len(names))
