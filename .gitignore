@@ -77,6 +77,8 @@ examples/state-direct/state-direct
 examples/test/test
 /tools
 examples/tools/tools
+/tools-limited
+examples/tools-limited/tools-limited
 /trace-turn
 examples/trace-turn/trace-turn
 /tree-loop

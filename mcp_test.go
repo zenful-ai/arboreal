@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -221,4 +223,127 @@ func TestTools_ConvertsInputSchema(t *testing.T) {
 	if _, ok := props["title"]; !ok {
 		t.Fatalf("marshaled InputSchema %s has no %q property", out, "title")
 	}
+}
+
+// newThreeToolMux serves three trivial tools — alpha, beta, gamma — from an
+// in-process MCP server over the in-memory transport and returns a mux
+// connected to it. Cleanup closes the mux, cancels the server and joins its
+// goroutine, in that order, so a test can neither leak it nor hang on it.
+// Shared with tools_test.go.
+func newThreeToolMux(t *testing.T) *MCPClientMux {
+	t.Helper()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "three-tools", Version: "v1.0.0"}, nil)
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		mcp.AddTool(server, &mcp.Tool{Name: name, Description: "tool " + name},
+			func(ctx context.Context, req *mcp.CallToolRequest, q titleQuery) (*mcp.CallToolResult, any, error) {
+				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: q.Title}}}, nil, nil
+			})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serverSide, clientSide := mcp.NewInMemoryTransports()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = server.Run(ctx, serverSide)
+	}()
+
+	mux := NewMCPClientMux()
+	t.Cleanup(func() {
+		mux.Close()
+		cancel()
+		<-done
+	})
+	if err := mux.AddInMemoryServer(ctx, clientSide); err != nil {
+		t.Fatalf("AddInMemoryServer returned error: %v", err)
+	}
+	return mux
+}
+
+// namesOf projects a tool list onto its names, in order.
+func namesOf(tools []llm.ChatTool) []string {
+	names := make([]string, len(tools))
+	for i, tool := range tools {
+		names[i] = tool.Name
+	}
+	return names
+}
+
+func TestSelect(t *testing.T) {
+	mux := newThreeToolMux(t)
+
+	t.Run("a subset, in the order given", func(t *testing.T) {
+		tools, err := mux.Select("gamma", "alpha")
+		if err != nil {
+			t.Fatalf("Select returned error: %v", err)
+		}
+		if got, want := namesOf(tools), []string{"gamma", "alpha"}; !slices.Equal(got, want) {
+			t.Fatalf("Select returned %v, want %v", got, want)
+		}
+		// Each entry is the converted tool, not a bare name: same assertions
+		for _, tool := range tools {
+			if tool.Type != llm.ChatToolTypeFunction {
+				t.Fatalf("tool %q has Type %q, want %q", tool.Name, tool.Type, llm.ChatToolTypeFunction)
+			}
+			if tool.Description != "tool "+tool.Name {
+				t.Fatalf("tool %q has Description %q, want %q", tool.Name, tool.Description, "tool "+tool.Name)
+			}
+			if tool.InputSchema == nil || tool.InputSchema.Type != "object" {
+				t.Fatalf("tool %q: InputSchema = %+v, want an object schema", tool.Name, tool.InputSchema)
+			}
+			if _, ok := tool.InputSchema.Properties["title"]; !ok {
+				t.Fatalf("tool %q: InputSchema has no %q property", tool.Name, "title")
+			}
+		}
+	})
+
+	t.Run("every tool, reversed", func(t *testing.T) {
+		tools, err := mux.Select("gamma", "beta", "alpha")
+		if err != nil {
+			t.Fatalf("Select returned error: %v", err)
+		}
+		if got, want := namesOf(tools), []string{"gamma", "beta", "alpha"}; !slices.Equal(got, want) {
+			t.Fatalf("Select returned %v, want %v", got, want)
+		}
+	})
+
+	t.Run("an unknown name", func(t *testing.T) {
+		tools, err := mux.Select("alpha", "delta")
+		if err == nil {
+			t.Fatalf("Select returned %v and no error, want an error", namesOf(tools))
+		}
+		if tools != nil {
+			t.Fatalf("Select returned %v alongside the error, want nil", namesOf(tools))
+		}
+		if !strings.Contains(err.Error(), `"delta"`) {
+			t.Fatalf("error %q does not name the unknown tool", err)
+		}
+		if !strings.Contains(err.Error(), "available: alpha, beta, gamma") {
+			t.Fatalf("error %q does not list the available tools, sorted", err)
+		}
+	})
+
+	t.Run("a name twice", func(t *testing.T) {
+		tools, err := mux.Select("alpha", "beta", "alpha")
+		if err == nil {
+			t.Fatalf("Select returned %v and no error, want an error", namesOf(tools))
+		}
+		if tools != nil {
+			t.Fatalf("Select returned %v alongside the error, want nil", namesOf(tools))
+		}
+		if !strings.Contains(err.Error(), `"alpha"`) {
+			t.Fatalf("error %q does not name the duplicated tool", err)
+		}
+	})
+
+	t.Run("no names", func(t *testing.T) {
+		tools, err := mux.Select()
+		if err != nil {
+			t.Fatalf("Select() returned error: %v", err)
+		}
+		if tools == nil || len(tools) != 0 {
+			t.Fatalf("Select() returned %#v, want an empty, non-nil list", tools)
+		}
+	})
 }

@@ -10,6 +10,7 @@ import (
 	"math/big"
 	insecureRand "math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -252,6 +253,17 @@ type LLMCompletionOptions struct {
 	Annotation   string
 	Terminal     bool
 	AllowTools   bool
+	// Tools narrows what AllowTools offers. When non-empty, only the named
+	// tools — by the name the mux knows them, i.e. the server's name — are
+	// sent to the model, in this order, and the tool loop refuses to
+	// execute any other name. A name the mux does not have, a duplicate, a
+	// missing mux, Tools set without AllowTools, or Tools on a state in
+	// annotation mode (which never offers tools) is an ErrorSignal before
+	// any model call. Empty offers every tool on the mux, as before.
+	//
+	// The slice is captured by reference, like ExtraContext; do not mutate
+	// it after the state is constructed.
+	Tools []string
 }
 
 func CannedResponseState(message string) *BehaviorState {
@@ -345,6 +357,15 @@ func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions)
 	return history, nil
 }
 
+// allowedToolCall reports whether the AllowTools loop may execute a call to
+// name under the given LLMCompletionOptions.Tools. An empty list is no
+// narrowing: every tool the mux knows may run, as before the option existed.
+// Otherwise only a listed name may run. tools must be the same list the
+// state passed to Select, so that what was offered is what may run.
+func allowedToolCall(tools []string, name string) bool {
+	return len(tools) == 0 || slices.Contains(tools, name)
+}
+
 func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 	id, _ := GenerateStringIdentifier("id-", 16)
 	if options.Id != "" {
@@ -375,6 +396,16 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 				}
 
 				system = buf.String()
+			}
+
+			// An annotation-mode state never offers tools (evalIntoAnnotation
+			// sends none), so a Tools list on one is a misconfiguration, not a
+			// request; report it like the other ways the list cannot be honored.
+			if options.Annotation != "" && len(options.Tools) > 0 {
+				return history, &ErrorSignal{
+					ErrorMessage: "Tools is set but this state is in annotation mode, which never offers tools",
+					ErrorType:    StateErrorTypeUnrecoverable,
+				}
 			}
 
 			if options.Annotation != "" {
@@ -428,10 +459,36 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 			}
 
 			var client *MCPClientMux
-			if options.AllowTools {
-				if c, ok := MCPClientFromContext(ctx); ok {
+			switch {
+			case !options.AllowTools && len(options.Tools) > 0:
+				return history, &ErrorSignal{
+					ErrorMessage: "Tools is set but AllowTools is false",
+					ErrorType:    StateErrorTypeUnrecoverable,
+				}
+			case options.AllowTools:
+				c, ok := MCPClientFromContext(ctx)
+				switch {
+				case !ok && len(options.Tools) > 0:
+					return history, &ErrorSignal{
+						ErrorMessage: "Tools is set but no MCP client is in the context (WithMCPClient)",
+						ErrorType:    StateErrorTypeUnrecoverable,
+					}
+				case ok && len(options.Tools) == 0:
 					client = c
-					request.Tools = client.Tools()
+					request.Tools = c.Tools()
+				case ok:
+					// Select validates the list; the loop below executes only
+					// names on it (allowedToolCall), so what was offered is
+					// exactly what may run.
+					tools, err := c.Select(options.Tools...)
+					if err != nil {
+						return history, &ErrorSignal{
+							ErrorMessage: err.Error(),
+							ErrorType:    StateErrorTypeUnrecoverable,
+						}
+					}
+					client = c
+					request.Tools = tools
 				}
 			}
 
@@ -445,9 +502,19 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 					}
 				}
 
-				// FIXME: Tool calls don't currently make it into the conversation history
 				if len(res.Message.ToolCalls) == 0 || client == nil {
 					break
+				}
+
+				// Narrowing what is offered does not narrow what the model can
+				// name: nothing on the wire guarantees the name that comes back
+				// was one of the tools sent. Refuse anything outside the offered
+				// list before it reaches the mux, which may know far more.
+				if !allowedToolCall(options.Tools, res.Message.ToolCalls[0].Name) {
+					return history, &ErrorSignal{
+						ErrorMessage: fmt.Sprintf("model called %q, which this state does not offer", res.Message.ToolCalls[0].Name),
+						ErrorType:    StateErrorTypeRetryable,
+					}
 				}
 
 				r, err := client.CallTool(ctx, &mcp.CallToolParams{
