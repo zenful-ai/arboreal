@@ -26,11 +26,11 @@ import (
 // ANCHOR: server
 // getCurrentTimestamp is an ordinary Go function; wrapping it in an MCP
 // server is what makes it a tool — Arboreal has no other tool mechanism.
-func getCurrentTimestamp(ctx context.Context, cc *mcp.ServerSession,
-	params *mcp.CallToolParamsFor[any]) (*mcp.CallToolResultFor[string], error) {
-	return &mcp.CallToolResultFor[string]{
+func getCurrentTimestamp(ctx context.Context, req *mcp.CallToolRequest,
+	_ any) (*mcp.CallToolResult, any, error) {
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: time.Now().Format(time.RFC3339)}},
-	}, nil
+	}, nil, nil
 }
 
 // ANCHOR_END: server

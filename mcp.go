@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zenful-ai/arboreal/llm"
 )
@@ -70,7 +71,10 @@ type MCPClientMux struct {
 	client       *mcp.Client
 	sessions     []*mcp.ClientSession
 	toolSessions map[string]*mcp.ClientSession
-	toolMap      map[string]*mcp.Tool
+	// toolMap holds each remote tool already converted to the llm package's
+	// shape; the conversion (wire schema -> *jsonschema.Schema) happens once,
+	// in addSessionMetadata, not on every Tools() call.
+	toolMap map[string]llm.ChatTool
 }
 
 func (m *MCPClientMux) Close() error {
@@ -85,14 +89,7 @@ func (m *MCPClientMux) Tools() []llm.ChatTool {
 	var tools []llm.ChatTool
 
 	for _, t := range m.toolMap {
-		tool := llm.ChatTool{
-			Type:        llm.ChatToolTypeFunction,
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-		}
-
-		tools = append(tools, tool)
+		tools = append(tools, t)
 	}
 
 	return tools
@@ -135,6 +132,32 @@ func (m *MCPClientMux) AddProfilesOfType(t string, profiles []MCPProfile) error 
 	return nil
 }
 
+// schemaFromTool converts a listed tool's input schema into the typed schema
+// the llm package carries. Since go-sdk v1 the client side holds the default
+// JSON decoding of the wire schema (normally a map[string]any; a boolean
+// schema decodes to a bool), so the conversion is a JSON round trip, which is
+// correct whatever the field holds; jsonschema.Schema's UnmarshalJSON handles
+// the "type" keyword in both its string and array forms. A tool with no input
+// schema yields nil, unchanged from v0.2.0, and the providers in llm are the
+// ones that must cope with that (llm/anthropic.go currently does not).
+func schemaFromTool(t *mcp.Tool) (*jsonschema.Schema, error) {
+	if t.InputSchema == nil {
+		return nil, nil
+	}
+
+	b, err := json.Marshal(t.InputSchema)
+	if err != nil {
+		return nil, fmt.Errorf("tool %q: marshal input schema: %w", t.Name, err)
+	}
+
+	var s jsonschema.Schema
+	if err := json.Unmarshal(b, &s); err != nil {
+		return nil, fmt.Errorf("tool %q: decode input schema: %w", t.Name, err)
+	}
+
+	return &s, nil
+}
+
 func (m *MCPClientMux) addSessionMetadata(ctx context.Context, session *mcp.ClientSession) error {
 	res, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -142,15 +165,25 @@ func (m *MCPClientMux) addSessionMetadata(ctx context.Context, session *mcp.Clie
 	}
 
 	for _, tool := range res.Tools {
+		schema, err := schemaFromTool(tool)
+		if err != nil {
+			return err
+		}
+
 		m.toolSessions[tool.Name] = session
-		m.toolMap[tool.Name] = tool
+		m.toolMap[tool.Name] = llm.ChatTool{
+			Type:        llm.ChatToolTypeFunction,
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: schema,
+		}
 	}
 
 	return nil
 }
 
 func (m *MCPClientMux) AddInMemoryServer(ctx context.Context, transport mcp.Transport) error {
-	session, err := m.client.Connect(ctx, transport)
+	session, err := m.client.Connect(ctx, transport, nil)
 	if err != nil {
 		return err
 	}
@@ -180,11 +213,12 @@ func (m *MCPClientMux) AddStreamableHTTPServer(ctx context.Context, baseURL stri
 		httpClient = opts.HTTPClient
 	}
 
-	transport := mcp.NewStreamableClientTransport(baseURL, &mcp.StreamableClientTransportOptions{
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   baseURL,
 		HTTPClient: httpClient, // nil is valid; the SDK falls back to http.DefaultClient
-	})
+	}
 
-	session, err := m.client.Connect(ctx, transport)
+	session, err := m.client.Connect(ctx, transport, nil)
 	if err != nil {
 		return err
 	}
@@ -196,9 +230,9 @@ func (m *MCPClientMux) AddStreamableHTTPServer(ctx context.Context, baseURL stri
 // TODO: no auth seam — add an SSEOptions{HTTPClient} mirroring
 // AddStreamableHTTPServer
 func (m *MCPClientMux) AddSSEServer(ctx context.Context, baseURL string) error {
-	transport := mcp.NewSSEClientTransport(baseURL, nil)
+	transport := &mcp.SSEClientTransport{Endpoint: baseURL}
 
-	session, err := m.client.Connect(ctx, transport)
+	session, err := m.client.Connect(ctx, transport, nil)
 	if err != nil {
 		return err
 	}
@@ -215,7 +249,7 @@ func NewMCPClientMux() *MCPClientMux {
 		Version: "v1.0.0",
 	}, nil)
 	m.toolSessions = make(map[string]*mcp.ClientSession)
-	m.toolMap = make(map[string]*mcp.Tool)
+	m.toolMap = make(map[string]llm.ChatTool)
 
 	return &m
 }
