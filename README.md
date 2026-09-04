@@ -183,6 +183,8 @@ The `examples/` directory contains various use cases:
 - **Trace Turn** (`examples/trace-turn/`) - The same two turns with a `Trace` channel printing what happens inside
 - **Snapshot Edges** (`examples/snapshot-edges/`) - When a snapshot records the executive and when it does not; runs without any API token
 - **Bookshelf** (`examples/bookshelf/`) - The capstone: one process run per message, snapshots for a pause that outlives the process, an MCP catalog tool and a trace drain in one program
+- **Tools** (`examples/tools/`) - One MCP tool served in-process over the in-memory transport, one state with `AllowTools` calling it
+- **Tools Limited** (`examples/tools-limited/`) - An MCP server exposing three tools and a state that offers the model exactly one of them via `Tools`; the rest stay out of the model's sight
 - **Chat Bot** (`examples/test/`) - Basic conversational agent
 - **CRM Assistant** (`examples/crm/`) - Customer relationship management
 
