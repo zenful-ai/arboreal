@@ -28,6 +28,11 @@ grep -rHoE --include='*.md' '\{\{#include [^}]+\}\}' book/src | while IFS= read 
     echo "book/check.sh: $chapter includes anchor '$anchor' not found in $path" >&2
     exit 1
   fi
+  # An ANCHOR with no ANCHOR_END silently includes the rest of the file.
+  if [ -n "$anchor" ] && ! grep -Eq "ANCHOR_END: ${anchor}([^A-Za-z0-9_-]|\$)" "$file"; then
+    echo "book/check.sh: $chapter includes anchor '$anchor' with no ANCHOR_END in $path" >&2
+    exit 1
+  fi
 done
 
 log=$(mdbook build book 2>&1) || { printf '%s\n' "$log"; exit 1; }
