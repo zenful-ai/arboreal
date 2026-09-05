@@ -18,8 +18,8 @@ type ctxCapturingBehavior struct {
 	receivedCtx context.Context
 }
 
-func (b *ctxCapturingBehavior) Hash() string       { return "ctx-capturing-behavior" }
-func (b *ctxCapturingBehavior) Name() string       { return "ctx-capturing-behavior" }
+func (b *ctxCapturingBehavior) Hash() string        { return "ctx-capturing-behavior" }
+func (b *ctxCapturingBehavior) Name() string        { return "ctx-capturing-behavior" }
 func (b *ctxCapturingBehavior) Description() string { return "records the context it is called with" }
 func (b *ctxCapturingBehavior) Copy() Behavior      { return b }
 
@@ -128,6 +128,12 @@ func TestModelURIs(t *testing.T) {
 			wantPlanner: "anthropic:ctx",
 			wantRepair:  "openai:repair",
 		},
+		{
+			name:        "RepairModel alone with no context: planner falls back, repair diverges",
+			repairModel: "openai:repair",
+			wantPlanner: fallbackModelURI,
+			wantRepair:  "openai:repair",
+		},
 	}
 
 	for _, tc := range cases {
@@ -162,6 +168,9 @@ func planErrorMessage(t *testing.T, exec *TodoListExecutive, ctx context.Context
 	func() {
 		defer func() {
 			r := recover()
+			if r == nil {
+				t.Fatalf("Plan did not panic; want an *ErrorSignal for an unresolvable model")
+			}
 			sig, ok := r.(*ErrorSignal)
 			if !ok {
 				t.Fatalf("Plan panicked with %T (%v), want *ErrorSignal", r, r)
@@ -247,5 +256,15 @@ func TestCopyPreservesModelFields(t *testing.T) {
 	if copied.PlannerModel != exec.PlannerModel || copied.RepairModel != exec.RepairModel {
 		t.Fatalf("Copy() = (PlannerModel %q, RepairModel %q), want (%q, %q)",
 			copied.PlannerModel, copied.RepairModel, exec.PlannerModel, exec.RepairModel)
+	}
+}
+
+// TestFixJSONUsesTheGivenModel pins that repair routes on the model URI it is
+// handed. Repair only runs on malformed planner output, which needs a real
+// model to produce, so this is as close as the loop can be closed hermetically.
+func TestFixJSONUsesTheGivenModel(t *testing.T) {
+	_, err := fixJSON(context.Background(), "{not json", "cluster:repair-probe")
+	if err == nil || !strings.Contains(err.Error(), "unknown model type: cluster") {
+		t.Fatalf("err = %v, want it to route on the given model URI", err)
 	}
 }
