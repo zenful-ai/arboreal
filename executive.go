@@ -513,6 +513,8 @@ func (e *TodoListExecutive) Copy() Behavior {
 	t.MaxPlanDepth = e.MaxPlanDepth
 	t.hash = e.hash
 	t.ClientID = e.ClientID
+	t.PlannerModel = e.PlannerModel
+	t.RepairModel = e.RepairModel
 
 	t.planDepth = e.planDepth
 	t.OutOfBoundsHandler = e.OutOfBoundsHandler.Copy()

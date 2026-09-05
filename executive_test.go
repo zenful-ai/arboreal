@@ -230,3 +230,22 @@ func TestPlanUsesConfiguredModel(t *testing.T) {
 		}
 	})
 }
+
+// TestCopyPreservesModelFields pins that Copy carries the model
+// configuration across, like the rest of the executive's configuration.
+// Copy is hand-maintained field by field, so a new field is easy to miss.
+func TestCopyPreservesModelFields(t *testing.T) {
+	exec := newProbeExecutive()
+	exec.OutOfBoundsHandler = exec.Behaviors[0]
+	exec.PlannerModel = "anthropic:planner"
+	exec.RepairModel = "openai:repair"
+
+	copied, ok := exec.Copy().(*TodoListExecutive)
+	if !ok {
+		t.Fatalf("Copy() returned %T, want *TodoListExecutive", exec.Copy())
+	}
+	if copied.PlannerModel != exec.PlannerModel || copied.RepairModel != exec.RepairModel {
+		t.Fatalf("Copy() = (PlannerModel %q, RepairModel %q), want (%q, %q)",
+			copied.PlannerModel, copied.RepairModel, exec.PlannerModel, exec.RepairModel)
+	}
+}
