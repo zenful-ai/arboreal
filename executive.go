@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"text/template"
@@ -40,6 +41,15 @@ type TodoListExecutive struct {
 	History            AnnotatedMessages
 	ClientID           string
 
+	// PlannerModel is the model URI for the planning call. Empty falls back
+	// to the context default set with WithDefaultModel.
+	PlannerModel string
+
+	// RepairModel is the model URI for repairing malformed planner JSON.
+	// Empty inherits the resolved PlannerModel, so repair never runs on a
+	// model the caller did not name.
+	RepairModel string
+
 	// FIXME: This shouldn't work this way
 	Output string
 
@@ -73,11 +83,28 @@ func CreateTodoListExecutiveWithId(name, description, id string, behaviors ...Be
 	}
 }
 
-func fixJSON(j string) (string, error) {
-	s := llm.OpenAIService{}
+// modelURIs resolves the planner and repair model URIs once, up front, so a
+// single plan makes exactly one resolution decision. Repair inherits the
+// resolved planner model rather than falling to the context default on its
+// own; because that inherited value is never empty, repair can never trigger
+// the fallback independently.
+func (e *TodoListExecutive) modelURIs(ctx context.Context) (planner, repair string) {
+	planner = modelURIFor(ctx, e.PlannerModel)
+	repair = e.RepairModel
+	if repair == "" {
+		repair = planner
+	}
+	return planner, repair
+}
 
-	response, err := s.CreateChatCompletion(context.Background(), &llm.ChatCompletionRequest{
-		Model: llm.GPT4oMini,
+func fixJSON(ctx context.Context, j, modelURI string) (string, error) {
+	provider, err := llm.CreateModelProvider(modelURI, llm.ProviderOpenAI)
+	if err != nil {
+		return "", err
+	}
+
+	response, err := provider.CreateChatCompletion(ctx, &llm.ChatCompletionRequest{
+		Model: modelURI,
 		Messages: []llm.ChatCompletionMessage{
 			{
 				Role:    llm.ChatMessageRoleSystem,
@@ -170,9 +197,12 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 		}
 	}
 
+	plannerModel, repairModel := e.modelURIs(ctx)
+
 	history, s := LLMCompletionState(LLMCompletionOptions{
 		System:     buf.String() + extraContext,
 		Annotation: "plan",
+		Model:      plannerModel,
 	}).Lambda(ctx, history)
 
 	if e, ok := s.(*ErrorSignal); ok {
@@ -190,8 +220,8 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 
 			err = json.Unmarshal([]byte(planData), &steps)
 			if err != nil {
-				util.RetryWithBackoff(func() error {
-					planData, err = fixJSON(planData)
+				retryErr := util.RetryWithBackoff(func() error {
+					planData, err = fixJSON(ctx, planData, repairModel)
 					if err != nil {
 						return err
 					}
@@ -203,6 +233,12 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 
 					return nil
 				}, 3)
+				if retryErr != nil {
+					// Mitigation only: Plan has no return value, so the
+					// executive still proceeds with an empty plan. See
+					// docs/findings/2026-09-05-planner-silent-empty-plan.md.
+					log.Printf("arboreal: planner JSON repair failed after retries; proceeding with an empty plan: %v", retryErr)
+				}
 			}
 
 			behaviorLookup := make(map[string]Behavior)

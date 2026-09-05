@@ -3,7 +3,10 @@ package arboreal
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/zenful-ai/arboreal/llm"
 )
 
 // ctxCapturingBehavior is a Behavior that records the context it was called
@@ -81,4 +84,149 @@ func TestRunLoopThreadsCallerSuppliedContext(t *testing.T) {
 	if got := behavior.receivedCtx.Value(sentinelKey); got != "threaded" {
 		t.Fatalf("behavior did not receive the caller's context: Value(sentinelKey) = %v, want %q", got, "threaded")
 	}
+}
+
+func TestModelURIs(t *testing.T) {
+	cases := []struct {
+		name         string
+		plannerModel string
+		repairModel  string
+		ctxDefault   string
+		wantPlanner  string
+		wantRepair   string
+	}{
+		{
+			name:        "nothing configured falls back for both",
+			wantPlanner: fallbackModelURI,
+			wantRepair:  fallbackModelURI,
+		},
+		{
+			name:        "context default used for both",
+			ctxDefault:  "anthropic:ctx",
+			wantPlanner: "anthropic:ctx",
+			wantRepair:  "anthropic:ctx",
+		},
+		{
+			name:         "PlannerModel wins over context and repair inherits it",
+			plannerModel: "anthropic:planner",
+			ctxDefault:   "anthropic:ctx",
+			wantPlanner:  "anthropic:planner",
+			wantRepair:   "anthropic:planner",
+		},
+		{
+			name:         "RepairModel overrides the inherited planner model",
+			plannerModel: "anthropic:planner",
+			repairModel:  "openai:repair",
+			ctxDefault:   "anthropic:ctx",
+			wantPlanner:  "anthropic:planner",
+			wantRepair:   "openai:repair",
+		},
+		{
+			name:        "RepairModel alone does not affect the planner",
+			repairModel: "openai:repair",
+			ctxDefault:  "anthropic:ctx",
+			wantPlanner: "anthropic:ctx",
+			wantRepair:  "openai:repair",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			captureLog(t) // silence and isolate the fallback warning
+
+			exec := CreateTodoListExecutive("test exec", "resolves models")
+			exec.PlannerModel = tc.plannerModel
+			exec.RepairModel = tc.repairModel
+
+			ctx := context.Background()
+			if tc.ctxDefault != "" {
+				ctx = WithDefaultModel(ctx, tc.ctxDefault)
+			}
+
+			gotPlanner, gotRepair := exec.modelURIs(ctx)
+			if gotPlanner != tc.wantPlanner || gotRepair != tc.wantRepair {
+				t.Fatalf("modelURIs = (%q, %q), want (%q, %q)", gotPlanner, gotRepair, tc.wantPlanner, tc.wantRepair)
+			}
+		})
+	}
+}
+
+// planErrorMessage runs Plan with the given executive and context and returns
+// the message of the *ErrorSignal it panics with. It fails the test if Plan
+// does not panic with an *ErrorSignal, because every case below configures a
+// model that cannot produce a provider — so reaching the model call at all is
+// the assertion.
+func planErrorMessage(t *testing.T, exec *TodoListExecutive, ctx context.Context) string {
+	t.Helper()
+	var msg string
+	func() {
+		defer func() {
+			r := recover()
+			sig, ok := r.(*ErrorSignal)
+			if !ok {
+				t.Fatalf("Plan panicked with %T (%v), want *ErrorSignal", r, r)
+			}
+			msg = sig.ErrorMessage
+		}()
+		exec.Plan(ctx, AnnotatedMessages{
+			{ChatCompletionMessage: llm.ChatCompletionMessage{Role: llm.ChatMessageRoleUser, Content: "hello"}},
+		})
+	}()
+	return msg
+}
+
+// newProbeExecutive builds the smallest executive Plan can run: the planner
+// prompt template indexes .Behaviors, so at least one *BehaviorTree is required.
+func newProbeExecutive() *TodoListExecutive {
+	tree := CreateBehaviorTree("probe", "a probe behavior", "example")
+	return CreateTodoListExecutive("probe exec", "probes model routing", &tree)
+}
+
+func TestPlanUsesConfiguredModel(t *testing.T) {
+	const clusterErr = "unknown model type: cluster"
+	const anthropicErr = "ANTHROPIC_TOKEN environment variable not set"
+
+	t.Run("context default reaches the planner", func(t *testing.T) {
+		captureLog(t)
+		ctx := WithDefaultModel(context.Background(), "cluster:ctx-probe")
+		if got := planErrorMessage(t, newProbeExecutive(), ctx); !strings.Contains(got, clusterErr) {
+			t.Fatalf("error = %q, want it to contain %q (context default was not used)", got, clusterErr)
+		}
+	})
+
+	t.Run("PlannerModel reaches the planner", func(t *testing.T) {
+		captureLog(t)
+		exec := newProbeExecutive()
+		exec.PlannerModel = "cluster:planner-probe"
+		if got := planErrorMessage(t, exec, context.Background()); !strings.Contains(got, clusterErr) {
+			t.Fatalf("error = %q, want it to contain %q (PlannerModel was not used)", got, clusterErr)
+		}
+	})
+
+	t.Run("PlannerModel takes precedence over the context default", func(t *testing.T) {
+		captureLog(t)
+		t.Setenv("ANTHROPIC_TOKEN", "")
+		exec := newProbeExecutive()
+		exec.PlannerModel = "anthropic:planner-probe"
+		ctx := WithDefaultModel(context.Background(), "cluster:ctx-probe")
+		got := planErrorMessage(t, exec, ctx)
+		if !strings.Contains(got, anthropicErr) {
+			t.Fatalf("error = %q, want it to contain %q (PlannerModel did not win)", got, anthropicErr)
+		}
+		if strings.Contains(got, clusterErr) {
+			t.Fatalf("error = %q mentions the context default; PlannerModel should have taken precedence", got)
+		}
+	})
+
+	t.Run("RepairModel does not affect the planner call", func(t *testing.T) {
+		captureLog(t)
+		exec := newProbeExecutive()
+		exec.RepairModel = "cluster:repair-probe"
+		ctx := WithDefaultModel(context.Background(), "anthropic:ctx-probe")
+		t.Setenv("ANTHROPIC_TOKEN", "")
+		got := planErrorMessage(t, exec, ctx)
+		if !strings.Contains(got, anthropicErr) {
+			t.Fatalf("error = %q, want it to contain %q (planner should use the context default)", got, anthropicErr)
+		}
+	})
 }
