@@ -281,7 +281,8 @@ func CannedResponseState(message string) *BehaviorState {
 	}
 }
 
-func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions) (AnnotatedMessages, Signal) {
+func evalIntoAnnotation(ctx context.Context, history AnnotatedMessages, options LLMCompletionOptions) (AnnotatedMessages, Signal) {
+	options.Model = modelURIFor(ctx, options.Model)
 	provider, err := llm.CreateModelProvider(options.Model, llm.ProviderOpenAI)
 	if err != nil {
 		return history, &ErrorSignal{
@@ -289,7 +290,6 @@ func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions)
 			ErrorType:    StateErrorTypeUnrecoverable,
 		}
 	}
-	ctx := context.Background()
 
 	system := options.System
 	if len(options.ExtraContext) > 0 {
@@ -321,10 +321,6 @@ func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions)
 			truncatedHistory[1].ChatCompletionMessage = message.ChatCompletionMessage
 			lastUserMessageIndex = idx
 		}
-	}
-
-	if options.Model == "" {
-		options.Model = llm.GPT4oMini
 	}
 
 	res, err := provider.CreateChatCompletion(ctx, &llm.ChatCompletionRequest{
@@ -411,9 +407,10 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 			if options.Annotation != "" {
 				opts := options
 				opts.System = system
-				return evalIntoAnnotation(history, opts)
+				return evalIntoAnnotation(ctx, history, opts)
 			}
 
+			options.Model = modelURIFor(ctx, options.Model)
 			provider, err := llm.CreateModelProvider(options.Model, llm.ProviderOpenAI)
 			if err != nil {
 				return history, &ErrorSignal{
@@ -447,10 +444,6 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 						},
 					}, history...)
 				}
-			}
-
-			if options.Model == "" {
-				options.Model = llm.GPT4oMini
 			}
 
 			request := llm.ChatCompletionRequest{
