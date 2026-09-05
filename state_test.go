@@ -1,11 +1,14 @@
 package arboreal
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/zenful-ai/arboreal/llm"
 )
 
 func TestMonotonicIdGenerator(t *testing.T) {
@@ -341,4 +344,68 @@ func BenchmarkMonotonicIdGeneratorConcurrent(b *testing.B) {
 			generator()
 		}
 	})
+}
+
+// probeHistory is the minimal history the LLM states accept.
+var probeHistory = AnnotatedMessages{
+	{ChatCompletionMessage: llm.ChatCompletionMessage{Role: llm.ChatMessageRoleUser, Content: "hello"}},
+}
+
+// TestLLMCompletionStateResolvesModelFromContext pins that a default set
+// with WithDefaultModel reaches the provider constructor on both of
+// LLMCompletionState's paths, and that it is resolved BEFORE the provider is
+// built. A "cluster:" URI parses as a known provider type but has no
+// constructor case, so CreateModelProvider fails deterministically with no
+// network and no credentials; that failure is the assertion. Before the
+// resolve-first change, both paths built an OpenAI provider from the empty
+// Model and ignored the context entirely.
+func TestLLMCompletionStateResolvesModelFromContext(t *testing.T) {
+	const clusterErr = "unknown model type: cluster"
+
+	for _, tc := range []struct {
+		name    string
+		options LLMCompletionOptions
+	}{
+		{name: "main path", options: LLMCompletionOptions{}},
+		{name: "annotation path", options: LLMCompletionOptions{Annotation: "probe"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			captureLog(t)
+			t.Setenv("OPENAI_TOKEN", "")
+			ctx := WithDefaultModel(context.Background(), "cluster:ctx-probe")
+			_, sig := LLMCompletionState(tc.options).Lambda(ctx, probeHistory)
+			errSig, ok := sig.(*ErrorSignal)
+			if !ok {
+				t.Fatalf("signal = %T (%v), want *ErrorSignal", sig, sig)
+			}
+			if !strings.Contains(errSig.ErrorMessage, clusterErr) {
+				t.Fatalf("error = %q, want it to contain %q (context default did not reach the provider constructor)", errSig.ErrorMessage, clusterErr)
+			}
+		})
+	}
+}
+
+// TestLLMCompletionStateDoesNotPinModelAcrossCalls pins that a state built
+// without a Model resolves afresh on every invocation. The Lambda closes over
+// its options; writing the resolved URI back into them would make the first
+// caller's context default permanent for that state and for every Copy of it.
+func TestLLMCompletionStateDoesNotPinModelAcrossCalls(t *testing.T) {
+	captureLog(t)
+	t.Setenv("ANTHROPIC_TOKEN", "")
+	state := LLMCompletionState(LLMCompletionOptions{})
+
+	_, first := state.Lambda(WithDefaultModel(context.Background(), "cluster:first"), probeHistory)
+	if sig, ok := first.(*ErrorSignal); !ok || !strings.Contains(sig.ErrorMessage, "unknown model type: cluster") {
+		t.Fatalf("first call: signal = %v, want the cluster error", first)
+	}
+
+	const anthropicErr = "ANTHROPIC_TOKEN environment variable not set"
+	_, second := state.Lambda(WithDefaultModel(context.Background(), "anthropic:second"), probeHistory)
+	sig, ok := second.(*ErrorSignal)
+	if !ok {
+		t.Fatalf("second call: signal = %T (%v), want *ErrorSignal", second, second)
+	}
+	if !strings.Contains(sig.ErrorMessage, anthropicErr) {
+		t.Fatalf("second call: error = %q, want it to contain %q (state was pinned to the first call's model)", sig.ErrorMessage, anthropicErr)
+	}
 }

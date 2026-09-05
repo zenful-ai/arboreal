@@ -282,8 +282,8 @@ func CannedResponseState(message string) *BehaviorState {
 }
 
 func evalIntoAnnotation(ctx context.Context, history AnnotatedMessages, options LLMCompletionOptions) (AnnotatedMessages, Signal) {
-	options.Model = modelURIFor(ctx, options.Model)
-	provider, err := llm.CreateModelProvider(options.Model, llm.ProviderOpenAI)
+	model := modelURIFor(ctx, options.Model)
+	provider, err := llm.CreateModelProvider(model, llm.ProviderOpenAI)
 	if err != nil {
 		return history, &ErrorSignal{
 			ErrorMessage: err.Error(),
@@ -324,7 +324,7 @@ func evalIntoAnnotation(ctx context.Context, history AnnotatedMessages, options 
 	}
 
 	res, err := provider.CreateChatCompletion(ctx, &llm.ChatCompletionRequest{
-		Model:    options.Model,
+		Model:    model,
 		Messages: truncatedHistory.ChatCompletionMessages(),
 	})
 	if err != nil {
@@ -410,8 +410,8 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 				return evalIntoAnnotation(ctx, history, opts)
 			}
 
-			options.Model = modelURIFor(ctx, options.Model)
-			provider, err := llm.CreateModelProvider(options.Model, llm.ProviderOpenAI)
+			model := modelURIFor(ctx, options.Model)
+			provider, err := llm.CreateModelProvider(model, llm.ProviderOpenAI)
 			if err != nil {
 				return history, &ErrorSignal{
 					ErrorMessage: err.Error(),
@@ -447,7 +447,7 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 			}
 
 			request := llm.ChatCompletionRequest{
-				Model:    options.Model,
+				Model:    model,
 				Messages: history.ChatCompletionMessages(),
 			}
 
