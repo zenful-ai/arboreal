@@ -243,11 +243,15 @@ func (b *BehaviorState) Copy() Behavior {
 }
 
 type LLMCompletionOptions struct {
-	Name         string
-	Description  string
-	ClientID     string
-	Id           string
-	System       string
+	Name        string
+	Description string
+	ClientID    string
+	Id          string
+	System      string
+	// Model is the model URI for this state's completion call, e.g.
+	// "anthropic:claude-sonnet-4-20250514". Empty falls back to the context
+	// default set with WithDefaultModel, and, when that is absent too, to a
+	// transitional built-in default with a once-per-process warning.
 	Model        string
 	ExtraContext []string
 	Annotation   string
@@ -281,15 +285,15 @@ func CannedResponseState(message string) *BehaviorState {
 	}
 }
 
-func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions) (AnnotatedMessages, Signal) {
-	provider, err := llm.CreateModelProvider(options.Model, llm.ProviderOpenAI)
+func evalIntoAnnotation(ctx context.Context, history AnnotatedMessages, options LLMCompletionOptions) (AnnotatedMessages, Signal) {
+	model := modelURIFor(ctx, options.Model)
+	provider, err := llm.CreateModelProvider(model, llm.ProviderOpenAI)
 	if err != nil {
 		return history, &ErrorSignal{
 			ErrorMessage: err.Error(),
 			ErrorType:    StateErrorTypeUnrecoverable,
 		}
 	}
-	ctx := context.Background()
 
 	system := options.System
 	if len(options.ExtraContext) > 0 {
@@ -323,12 +327,8 @@ func evalIntoAnnotation(history AnnotatedMessages, options LLMCompletionOptions)
 		}
 	}
 
-	if options.Model == "" {
-		options.Model = llm.GPT4oMini
-	}
-
 	res, err := provider.CreateChatCompletion(ctx, &llm.ChatCompletionRequest{
-		Model:    options.Model,
+		Model:    model,
 		Messages: truncatedHistory.ChatCompletionMessages(),
 	})
 	if err != nil {
@@ -411,10 +411,11 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 			if options.Annotation != "" {
 				opts := options
 				opts.System = system
-				return evalIntoAnnotation(history, opts)
+				return evalIntoAnnotation(ctx, history, opts)
 			}
 
-			provider, err := llm.CreateModelProvider(options.Model, llm.ProviderOpenAI)
+			model := modelURIFor(ctx, options.Model)
+			provider, err := llm.CreateModelProvider(model, llm.ProviderOpenAI)
 			if err != nil {
 				return history, &ErrorSignal{
 					ErrorMessage: err.Error(),
@@ -449,12 +450,8 @@ func LLMCompletionState(options LLMCompletionOptions) BehaviorState {
 				}
 			}
 
-			if options.Model == "" {
-				options.Model = llm.GPT4oMini
-			}
-
 			request := llm.ChatCompletionRequest{
-				Model:    options.Model,
+				Model:    model,
 				Messages: history.ChatCompletionMessages(),
 			}
 
