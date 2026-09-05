@@ -18,6 +18,11 @@ const defaultModelContextKey contextKey = "arboreal_default_model"
 // "anthropic:claude-sonnet-4-20250514". A URI whose prefix is not a
 // recognized provider — including a bare model name — is routed to the
 // OpenAI provider.
+//
+// If no default is set and a state or planner names no model of its own,
+// arboreal falls back to a built-in model and logs a deprecation warning
+// once per process to the standard logger (log.Printf). That fallback will
+// be removed in a later release.
 func WithDefaultModel(ctx context.Context, uri string) context.Context {
 	return context.WithValue(ctx, defaultModelContextKey, uri)
 }
