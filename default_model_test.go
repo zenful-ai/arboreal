@@ -3,6 +3,8 @@ package arboreal
 import (
 	"context"
 	"testing"
+
+	"github.com/zenful-ai/arboreal/llm"
 )
 
 func TestDefaultModelContext(t *testing.T) {
@@ -32,5 +34,55 @@ func TestDefaultModelContext(t *testing.T) {
 	ctx = WithMCPClient(ctx, NewMCPClientMux())
 	if got, ok := DefaultModelFromContext(ctx); !ok || got != uri {
 		t.Fatalf("DefaultModelFromContext after WithMCPClient = (%q, %v), want (%q, true)", got, ok, uri)
+	}
+}
+
+func TestResolveModelURI(t *testing.T) {
+	cases := []struct {
+		name         string
+		explicit     string
+		ctxDefault   string
+		wantURI      string
+		wantFallback bool
+	}{
+		{
+			name:       "explicit wins over context default",
+			explicit:   "anthropic:explicit",
+			ctxDefault: "anthropic:ctx",
+			wantURI:    "anthropic:explicit",
+		},
+		{
+			name:     "explicit alone",
+			explicit: "anthropic:explicit",
+			wantURI:  "anthropic:explicit",
+		},
+		{
+			name:       "context default when explicit is empty",
+			ctxDefault: "anthropic:ctx",
+			wantURI:    "anthropic:ctx",
+		},
+		{
+			name:         "fallback when both are empty",
+			wantURI:      fallbackModelURI,
+			wantFallback: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotURI, gotFallback := resolveModelURI(tc.explicit, tc.ctxDefault)
+			if gotURI != tc.wantURI || gotFallback != tc.wantFallback {
+				t.Fatalf("resolveModelURI(%q, %q) = (%q, %v), want (%q, %v)",
+					tc.explicit, tc.ctxDefault, gotURI, gotFallback, tc.wantURI, tc.wantFallback)
+			}
+		})
+	}
+}
+
+func TestFallbackModelURIIsTheHistoricalDefault(t *testing.T) {
+	// This change must not alter what unconfigured code gets. The release that
+	// removes the fallback deletes this constant and this test with it.
+	if fallbackModelURI != llm.GPT4oMini {
+		t.Fatalf("fallbackModelURI = %q, want llm.GPT4oMini (%q)", fallbackModelURI, llm.GPT4oMini)
 	}
 }

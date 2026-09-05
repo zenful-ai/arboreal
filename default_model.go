@@ -2,6 +2,8 @@ package arboreal
 
 import (
 	"context"
+
+	"github.com/zenful-ai/arboreal/llm"
 )
 
 const defaultModelContextKey contextKey = "arboreal_default_model"
@@ -27,4 +29,22 @@ func DefaultModelFromContext(ctx context.Context) (string, bool) {
 	}
 	uri, ok := ctx.Value(defaultModelContextKey).(string)
 	return uri, ok
+}
+
+// fallbackModelURI is what a state or planner uses when neither it nor the
+// context names a model. It is transitional: a later release removes it and
+// makes a missing model an error.
+const fallbackModelURI = llm.GPT4oMini
+
+// resolveModelURI picks the model URI to use: explicit if set, else ctxDefault
+// if set, else fallbackModelURI. usedFallback reports that neither an explicit
+// choice nor a context default was available.
+func resolveModelURI(explicit, ctxDefault string) (uri string, usedFallback bool) {
+	if explicit != "" {
+		return explicit, false
+	}
+	if ctxDefault != "" {
+		return ctxDefault, false
+	}
+	return fallbackModelURI, true
 }
