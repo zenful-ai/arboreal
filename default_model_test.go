@@ -1,7 +1,11 @@
 package arboreal
 
 import (
+	"bytes"
 	"context"
+	"log"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/zenful-ai/arboreal/llm"
@@ -85,4 +89,86 @@ func TestFallbackModelURIIsTheHistoricalDefault(t *testing.T) {
 	if fallbackModelURI != llm.GPT4oMini {
 		t.Fatalf("fallbackModelURI = %q, want llm.GPT4oMini (%q)", fallbackModelURI, llm.GPT4oMini)
 	}
+}
+
+// captureLog redirects the standard logger into a buffer for the duration of
+// the test and resets the once-only fallback warning so the test observes a
+// fresh first emission regardless of what ran before it.
+//
+// Not safe for use with t.Parallel: it mutates process-global state (the
+// standard logger and fallbackWarning). The returned buffer is written under
+// the logger's mutex but read without one; join any goroutines that may log
+// before reading it.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prevOut := log.Writer()
+	prevFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	fallbackWarning = sync.Once{}
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+		fallbackWarning = sync.Once{}
+	})
+	return &buf
+}
+
+func TestModelURIFor(t *testing.T) {
+	t.Run("explicit wins and does not warn", func(t *testing.T) {
+		buf := captureLog(t)
+		ctx := WithDefaultModel(context.Background(), "anthropic:ctx")
+		if got := modelURIFor(ctx, "anthropic:explicit"); got != "anthropic:explicit" {
+			t.Fatalf("modelURIFor = %q, want %q", got, "anthropic:explicit")
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("unexpected log output: %q", buf.String())
+		}
+	})
+
+	t.Run("context default is used and does not warn", func(t *testing.T) {
+		buf := captureLog(t)
+		ctx := WithDefaultModel(context.Background(), "anthropic:ctx")
+		if got := modelURIFor(ctx, ""); got != "anthropic:ctx" {
+			t.Fatalf("modelURIFor = %q, want %q", got, "anthropic:ctx")
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("unexpected log output: %q", buf.String())
+		}
+	})
+
+	t.Run("fallback warns exactly once per process", func(t *testing.T) {
+		buf := captureLog(t)
+		ctx := context.Background()
+
+		if got := modelURIFor(ctx, ""); got != fallbackModelURI {
+			t.Fatalf("modelURIFor = %q, want fallback %q", got, fallbackModelURI)
+		}
+		if got := modelURIFor(ctx, ""); got != fallbackModelURI {
+			t.Fatalf("second modelURIFor = %q, want fallback %q", got, fallbackModelURI)
+		}
+
+		out := buf.String()
+		const marker = "arboreal: no default model configured"
+		if n := strings.Count(out, marker); n != 1 {
+			t.Fatalf("fallback warning emitted %d times, want 1; output:\n%s", n, out)
+		}
+		for _, want := range []string{fallbackModelURI, "WithDefaultModel"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("warning should mention %q; got:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("empty context default is treated as unset", func(t *testing.T) {
+		buf := captureLog(t)
+		ctx := WithDefaultModel(context.Background(), "")
+		if got := modelURIFor(ctx, ""); got != fallbackModelURI {
+			t.Fatalf("modelURIFor = %q, want fallback %q", got, fallbackModelURI)
+		}
+		if !strings.Contains(buf.String(), "no default model configured") {
+			t.Fatalf("empty context default should warn; got %q", buf.String())
+		}
+	})
 }
