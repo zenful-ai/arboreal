@@ -44,8 +44,8 @@ func text(s string) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-
 func main() {
+	// ANCHOR: server
 	server := mcp.NewServer(&mcp.Implementation{Name: "ai.zenful", Version: "v1.0.0"}, nil)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "ai.zenful/get_current_timestamp",
@@ -59,7 +59,9 @@ func main() {
 		Name:        "ai.zenful/delete_everything",
 		Description: "Delete all of the user's data",
 	}, deleteEverything)
+	// ANCHOR_END: server
 
+	// ANCHOR: wiring
 	serverSide, clientSide := mcp.NewInMemoryTransports()
 	go func() {
 		if err := server.Run(context.Background(), serverSide); err != nil {
@@ -95,6 +97,7 @@ func main() {
 	for _, t := range selected {
 		fmt.Printf("  %s\n", t.Name)
 	}
+	// ANCHOR_END: wiring
 
 	// ANCHOR: call
 	state := arboreal.LLMCompletionState(arboreal.LLMCompletionOptions{
@@ -119,4 +122,5 @@ func main() {
 		// Name is set only on the function-role result: the tool that ran.
 		fmt.Printf("[%d] %-9s %-32s %q\n", i, m.Role, m.Name, m.Content)
 	}
+	// ANCHOR_END: call
 }
