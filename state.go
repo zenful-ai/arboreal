@@ -243,11 +243,15 @@ func (b *BehaviorState) Copy() Behavior {
 }
 
 type LLMCompletionOptions struct {
-	Name         string
-	Description  string
-	ClientID     string
-	Id           string
-	System       string
+	Name        string
+	Description string
+	ClientID    string
+	Id          string
+	System      string
+	// Model is the model URI for this state's completion call, e.g.
+	// "anthropic:claude-sonnet-4-20250514". Empty falls back to the context
+	// default set with WithDefaultModel, and, when that is absent too, to a
+	// transitional built-in default with a once-per-process warning.
 	Model        string
 	ExtraContext []string
 	Annotation   string

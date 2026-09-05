@@ -41,9 +41,11 @@ type TodoListExecutive struct {
 	History            AnnotatedMessages
 	ClientID           string
 
-	// PlannerModel is the model URI for the planning call, e.g.
+	// PlannerModel is the model URI for the planning call only, e.g.
 	// "anthropic:claude-sonnet-4-20250514". Empty falls back to the context
-	// default set with WithDefaultModel.
+	// default set with WithDefaultModel. It does not apply to the executive's
+	// other LLM calls: the turn summary in Execute and the states inside its
+	// behaviors resolve their own Model, then the context default.
 	PlannerModel string
 
 	// RepairModel is the model URI for repairing malformed planner JSON.
@@ -235,9 +237,9 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 					return nil
 				}, 3)
 				if retryErr != nil {
-					// Mitigation only: Plan has no return value, so the
-					// executive still proceeds with whatever steps parsed. See
-					// docs/findings/2026-09-05-planner-silent-empty-plan.md.
+					// Mitigation only: Plan has no return value and its only
+					// error convention is panic, so the executive proceeds with
+					// whatever steps parsed and callers cannot detect it.
 					log.Printf("arboreal: planner JSON repair failed after retries; the plan may be empty or incomplete: %v", retryErr)
 				}
 			}
