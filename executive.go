@@ -20,9 +20,15 @@ const (
 )
 
 type ExecGeneratedStep struct {
-	Behavior        Behavior
+	Behavior        Step
 	Messages        AnnotatedMessages
 	ReplanTombstone bool
+}
+
+// copyStep copies a step's behavior. Copy returns a Behavior; a Step's copy
+// is a Step, and anything else is a programming error.
+func copyStep(s Step) Step {
+	return s.Copy().(Step)
 }
 
 type PlanResult struct {
@@ -35,7 +41,7 @@ type TodoListExecutive struct {
 	ExecName           string
 	ExecDescription    string
 	Preamble           string
-	Behaviors          []Behavior
+	Behaviors          []Step
 	OutOfBoundsHandler Behavior
 	MaxPlanDepth       int
 	History            AnnotatedMessages
@@ -61,7 +67,7 @@ type TodoListExecutive struct {
 	hash      string
 }
 
-func CreateTodoListExecutive(name, description string, behaviors ...Behavior) *TodoListExecutive {
+func CreateTodoListExecutive(name, description string, behaviors ...Step) *TodoListExecutive {
 	h, err := GenerateStringIdentifier("id-", 16)
 	if err != nil {
 		panic(err)
@@ -76,7 +82,7 @@ func CreateTodoListExecutive(name, description string, behaviors ...Behavior) *T
 	}
 }
 
-func CreateTodoListExecutiveWithId(name, description, id string, behaviors ...Behavior) *TodoListExecutive {
+func CreateTodoListExecutiveWithId(name, description, id string, behaviors ...Step) *TodoListExecutive {
 	return &TodoListExecutive{
 		ExecName:        name,
 		ExecDescription: description,
@@ -166,7 +172,7 @@ A simple example response could be:
 func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages) {
 	var data = struct {
 		Preamble  string
-		Behaviors []Behavior
+		Behaviors []Step
 	}{
 		Behaviors: e.Behaviors,
 		Preamble:  e.interpolatedPreamble(messages),
@@ -244,7 +250,7 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 				}
 			}
 
-			behaviorLookup := make(map[string]Behavior)
+			behaviorLookup := make(map[string]Step)
 			for _, b := range e.Behaviors {
 				behaviorLookup[b.Name()] = b
 			}
@@ -261,7 +267,7 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 					}
 
 					e.plan = append(e.plan, &ExecGeneratedStep{
-						Behavior: b.Copy(),
+						Behavior: copyStep(b),
 						Messages: AnnotatedMessages{
 							{
 								ChatCompletionMessage: llm.ChatCompletionMessage{
@@ -578,10 +584,22 @@ func (e *TodoListExecutive) Copy() Behavior {
 	t.OutOfBoundsHandler = e.OutOfBoundsHandler.Copy()
 
 	for _, b := range e.Behaviors {
-		t.Behaviors = append(t.Behaviors, b.Copy())
+		t.Behaviors = append(t.Behaviors, copyStep(b))
 	}
 
 	return &t
+}
+
+// resume hands every pending step the part of the transcript its behavior
+// selects, appended to the step's own messages. A Re-plan tombstone has no
+// behavior and takes nothing.
+func (e *TodoListExecutive) resume(transcript AnnotatedMessages) {
+	for _, step := range e.plan {
+		if step.ReplanTombstone {
+			continue
+		}
+		step.Messages = append(step.Messages, step.Behavior.Select(transcript)...)
+	}
 }
 
 func (e *TodoListExecutive) Call(ctx context.Context, messages AnnotatedMessages) (AnnotatedMessages, Signal) {
@@ -610,10 +628,7 @@ func (e *TodoListExecutive) Call(ctx context.Context, messages AnnotatedMessages
 	if len(e.plan) <= 0 {
 		e.Plan(ctx, messages)
 	} else {
-		// FIXME: This may need to be tailored to each behavior
-		for _, p := range e.plan {
-			p.Messages = append(p.Messages, *messages.LastMessage())
-		}
+		e.resume(messages)
 	}
 
 	sig := e.Execute(ctx, messages)
@@ -662,9 +677,7 @@ func (e *TodoListExecutive) RunLoop(ctx context.Context, c Channel) error {
 		if len(e.plan) == 0 {
 			e.Plan(ctx, e.History)
 		} else {
-			for _, step := range e.plan {
-				step.Messages = append(step.Messages, *e.History.LastMessage())
-			}
+			e.resume(e.History)
 		}
 
 		if sig, ok := e.Execute(ctx, e.History).(*ErrorSignal); ok {
