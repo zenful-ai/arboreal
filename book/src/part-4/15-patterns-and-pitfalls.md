@@ -221,6 +221,8 @@ Every knob but `RepairModel` resolves the same way: the explicit value if there 
 
 The fourth line is the one the user hears. `SummaryModel` names the model for `Execute`'s turn summary — the call that writes the reply whenever two or more steps ran, or a lone step failed — which makes it the executive's most visible call. Unlike `RepairModel` it does *not* inherit `PlannerModel`: a summary is prose for the user, not a routing decision in JSON, so tiering the planner up leaves the reply's voice on the context default until you name one, and tiering it down does not cheapen the reply behind your back. An executive with `PlannerModel` set, no `SummaryModel` and no context default still plans on the model you chose and summarizes on the fallback, the one arrangement that needs a credential you did not plan to use. Set the context default first, always; treat the three fields as adjustments to it rather than as the place where model choice lives. ([Chapter 5](../part-2/05-behaviors-and-states.md) for how a `provider:model` URI resolves, [Chapter 8](../part-2/08-the-executive.md) for the calls the executive makes without being asked.)
 
+The prompt has the same split as the model. `Preamble` opens the planner prompt and `SummaryPreamble` the two summarizer prompts, and the second falls back to the first when it is empty, so an executive that sets only a `Preamble` reads as it always has (Faithful Directions via Preamble, below, for when to set the second).
+
 ### Opening with the User's Words
 
 **When:** a behavior that needs the record rather than the gist — a ticket that must contain what the user wrote, a title or an entry to match by its wording, a lookup whose key is the user's own phrase. The planner's `direction` is a paraphrase, and a freshly planned step opens with that paraphrase alone unless its tree says otherwise.
@@ -251,9 +253,13 @@ exec.Preamble = "When writing the \"direction\" for a step, restate the user's "
 	"Never rephrase the user's words as if they were addressed to the user. " +
 	"If the message fits none of the behaviors, return an empty JSON array: []. " +
 	"Never include a Re-plan step in the plan."
+
+exec.SummaryPreamble = "Reply to the user in prose, in your own voice, confirming what was done."
 ```
 
 Remember what it costs: `interpolatedPreamble` opens the summarizer prompts as well as the planner prompt, so a restate-faithfully instruction shows through as a `The user said: …` preface in any reply the executive writes itself, which is a merged reply of two or more steps, or the reply after a lone step failed. That is the `Preamble` being the executive's voice rather than a planner setting. ([Chapter 2](../part-1/02-anatomy-of-one-turn.md) for the drift it fixes, [Chapter 8](../part-2/08-the-executive.md) for the three jobs it does.)
+
+The `[]` rule costs more than a preface: nothing else in the summarizer prompt describes a shape, so a merged reply can come back as a JSON array naming the behaviors that ran. The remedy is `SummaryPreamble`. Set it to the identity and tone alone; it opens the two summarizer prompts in `Preamble`'s place and reaches no other prompt, so the direction format, the `[]` rule and the `Re-plan` guard stay with the planner. Empty, it falls back to `Preamble`, which is why every executive that set only a `Preamble` still reads as it did. ([Chapter 8](../part-2/08-the-executive.md) for the field; `examples/poetry` sets one.)
 
 ### Batched Input via Intake
 
