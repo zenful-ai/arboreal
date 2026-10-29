@@ -68,14 +68,20 @@ func main() {
 		&haiku, &sonnet,
 	)
 
-	// The Preamble is prepended to both the planner's prompt and the
-	// summarizer's prompt. Two instructions:
-	// keep the user's topic intact in each step's direction, and return an
-	// empty plan for anything that is not a poetry request — an empty plan
-	// is what routes a message to the out-of-bounds handler.
+	// The Preamble opens the planner's prompt. Two instructions: keep the
+	// user's topic intact in each step's direction, and return an empty
+	// plan for anything that is not a poetry request — an empty plan is
+	// what routes a message to the out-of-bounds handler.
 	exec.Preamble = "You are a poetry service. When writing a step's \"direction\", " +
 		"restate the user's request faithfully, keeping the topic they asked for. " +
 		"If the user did not ask for a haiku or a sonnet, return an empty JSON array: []"
+
+	// The SummaryPreamble opens the summarizer's prompt instead, the call
+	// that merges two poems into one reply. Left unset, the Preamble would
+	// open it, and its "[]" rule is then the only shape the reply is told
+	// about.
+	exec.SummaryPreamble = "You are a poetry service. Present the poems that were written, " +
+		"each under its own heading, and nothing else."
 
 	exec.OutOfBoundsHandler = arboreal.CannedResponseState(
 		"Sorry, I only write haikus and sonnets.",
