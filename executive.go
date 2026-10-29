@@ -267,7 +267,11 @@ A simple example response could be:
 ]
 `
 
-func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages) {
+// plannerSystem renders the planner prompt for messages: the interpolated
+// Preamble, then executivePlannerPrompt over Behaviors. It is pure, so a
+// test can read the prompt without a model; Plan appends the previous chat
+// history to it before the call.
+func (e *TodoListExecutive) plannerSystem(messages AnnotatedMessages) string {
 	var data = struct {
 		Preamble  string
 		Behaviors []Step
@@ -283,6 +287,12 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 	if err != nil {
 		panic(err)
 	}
+
+	return buf.String()
+}
+
+func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages) {
+	prompt := e.plannerSystem(messages)
 
 	e.plan = []*ExecGeneratedStep{}
 
@@ -307,7 +317,7 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 	plannerModel, repairModel := e.modelURIs(ctx)
 
 	history, s := LLMCompletionState(LLMCompletionOptions{
-		System:     buf.String() + extraContext,
+		System:     prompt + extraContext,
 		Annotation: "plan",
 		Model:      plannerModel,
 	}).Lambda(ctx, history)
@@ -325,7 +335,7 @@ func (e *TodoListExecutive) Plan(ctx context.Context, messages AnnotatedMessages
 				Direction string `json:"direction"`
 			}
 
-			err = json.Unmarshal([]byte(planData), &steps)
+			err := json.Unmarshal([]byte(planData), &steps)
 			if err != nil {
 				retryErr := util.RetryWithBackoff(func() error {
 					planData, err = fixJSON(ctx, planData, repairModel)
@@ -631,6 +641,37 @@ Rephrase the following statements or questions as a single question or statement
 {{ end }}
 `
 
+// summarizerSystem renders the summarizer prompt for the turn: the
+// interpolated Preamble, then executiveSummarizerPrompt with a transcript
+// of messages (one role: content line each) and the summaries, or, when
+// inProcess, workInProcessSummarizerPrompt with the summaries alone. It is
+// pure, like triage, so a test can read the prompt without a model.
+func (e *TodoListExecutive) summarizerSystem(messages AnnotatedMessages, summaries []string, inProcess bool) string {
+	var info = struct {
+		Transcript string
+		Summaries  []string
+		Preamble   string
+	}{
+		Preamble:  e.interpolatedPreamble(messages),
+		Summaries: summaries,
+	}
+
+	for _, m := range messages {
+		info.Transcript += m.Role + ": " + m.Content + "\n"
+	}
+
+	prompt := executiveSummarizerPrompt
+	if inProcess {
+		prompt = workInProcessSummarizerPrompt
+	}
+
+	var buf bytes.Buffer
+	t := template.Must(template.New("summarizer").Parse(prompt))
+	t.Execute(&buf, info)
+
+	return buf.String()
+}
+
 // Execute runs the plan and decides the turn's reply. It writes e.Output,
 // e.ToolCalls, e.Crossed and e.plan (and, on a re-plan, rewrites the last
 // message of messages with the direction and the summaries) and returns a
@@ -688,20 +729,8 @@ func (e *TodoListExecutive) execute(ctx context.Context, messages AnnotatedMessa
 		return nil
 	}
 
-	var info = struct {
-		Transcript string
-		Summaries  []string
-		Preamble   string
-	}{
-		Preamble: e.interpolatedPreamble(messages),
-	}
-
-	for _, m := range messages {
-		info.Transcript += m.Role + ": " + m.Content + "\n"
-	}
-
 	outcome := triage(e.executePlan(ctx, e.plan))
-	info.Summaries = outcome.Summaries
+	summaries := outcome.Summaries
 	plan := outcome.Kept
 
 	if e.plan[len(e.plan)-1].ReplanTombstone {
@@ -714,7 +743,7 @@ func (e *TodoListExecutive) execute(ctx context.Context, messages AnnotatedMessa
 				direction = messages.LastMessage().Content
 			}
 
-			messages[len(messages)-1].Content = fmt.Sprintf("%s\n\n%s", direction, strings.Join(info.Summaries, "\n\n"))
+			messages[len(messages)-1].Content = fmt.Sprintf("%s\n\n%s", direction, strings.Join(summaries, "\n\n"))
 			e.plan = []*ExecGeneratedStep{}
 
 			if e.planDepth >= e.MaxPlanDepth {
@@ -741,15 +770,6 @@ final:
 		return nil
 	}
 
-	prompt := executiveSummarizerPrompt
-	if len(e.plan) > 0 {
-		prompt = workInProcessSummarizerPrompt
-	}
-
-	var buf bytes.Buffer
-	t := template.Must(template.New("summarizer").Parse(prompt))
-	t.Execute(&buf, info)
-
 	// The summarizer is the executive's own state, called through the
 	// traced wrapper so its begin and end ride the trace like any state's.
 	// Its model is resolved here into a local, the way Plan resolves the
@@ -761,7 +781,7 @@ final:
 		Name:        "summarize",
 		Description: "Writes the turn's reply from the steps' results",
 		ClientID:    e.ClientID,
-		System:      buf.String(),
+		System:      e.summarizerSystem(messages, summaries, len(e.plan) > 0),
 		Model:       summaryModel,
 	})
 	m, sig := summarize.Call(ctx, AnnotatedMessages{

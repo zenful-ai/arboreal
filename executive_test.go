@@ -2345,3 +2345,49 @@ func TestCrossingAfterRestoreHoldsOnlyTheNewTurn(t *testing.T) {
 		t.Fatal("the reply carries turn one's pin: the restored step's earlier turn was crossed again")
 	}
 }
+
+// TestSummarizerPromptFallsBackToPreamble pins that, with no summary
+// preamble of its own, both summarizer prompts open with the interpolated
+// Preamble, as they always have, that the finished-plan prompt carries the
+// transcript and the work-in-process one does not, and that nothing on the
+// way renders the U+FFFD an empty template would. plannerSystem opens with
+// the Preamble too.
+func TestSummarizerPromptFallsBackToPreamble(t *testing.T) {
+	exec := replyExecutive(cannedTree("tree-a", "A"))
+	exec.Preamble = "PLANNER"
+	summaries := []string{"A finished", "B finished"}
+
+	for _, inProcess := range []bool{false, true} {
+		got := exec.summarizerSystem(userTurn(), summaries, inProcess)
+		if !strings.HasPrefix(got, "PLANNER") {
+			t.Fatalf("inProcess=%v: summarizer prompt = %q, want it to open with the Preamble", inProcess, got)
+		}
+		if strings.ContainsRune(got, '�') {
+			t.Fatalf("inProcess=%v: summarizer prompt contains U+FFFD: %q", inProcess, got)
+		}
+		if !strings.Contains(got, "A finished") || !strings.Contains(got, "B finished") {
+			t.Fatalf("inProcess=%v: summarizer prompt = %q, want both summaries in it", inProcess, got)
+		}
+		hasTranscript := strings.Contains(got, "user: Hello\n")
+		if inProcess && hasTranscript {
+			t.Fatalf("work-in-process prompt = %q, want no transcript in it", got)
+		}
+		if !inProcess && !hasTranscript {
+			t.Fatalf("finished-plan prompt = %q, want the transcript in it", got)
+		}
+	}
+	if got := exec.summarizerSystem(userTurn(), summaries, false); !strings.Contains(got, "Craft a response to the user message below") {
+		t.Fatalf("finished-plan prompt = %q, want its closing line unchanged", got)
+	}
+	if got := exec.summarizerSystem(userTurn(), summaries, true); !strings.Contains(got, "Rephrase the following statements or questions") {
+		t.Fatalf("work-in-process prompt = %q, want its closing line unchanged", got)
+	}
+
+	got := exec.plannerSystem(userTurn())
+	if !strings.HasPrefix(got, "PLANNER") {
+		t.Fatalf("planner prompt = %q, want it to open with the Preamble", got)
+	}
+	if !strings.Contains(got, "tree-a: replies with A") {
+		t.Fatalf("planner prompt = %q, want the behavior list in it", got)
+	}
+}
