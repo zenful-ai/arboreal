@@ -108,9 +108,12 @@ func getEntryPoint(l *lua.LState) (arboreal.Behavior, error) {
 	}
 }
 
-func TestInRuntime(script string) error {
-	var err error
-
+// testState is the Lua state TestInRuntime runs a script in: every type of
+// the current runtime version registered, the http and json modules
+// preloaded, an id generator on the context, and no trace. A test that
+// needs to reach a value the script left in a global builds the state here
+// and runs the script on it.
+func testState() *lua.LState {
 	l := lua.NewState()
 
 	// HTTP requests module
@@ -126,11 +129,11 @@ func TestInRuntime(script string) error {
 	ctx, _ := context.WithCancel(context.WithValue(context.Background(), "id", arboreal.MonotonicIdGenerator("id-")))
 	l.SetContext(ctx)
 
-	if err = l.DoString(script); err != nil {
-		return err
-	}
+	return l
+}
 
-	return nil
+func TestInRuntime(script string) error {
+	return testState().DoString(script)
 }
 
 func (r *Runtime) NoTrace() {
