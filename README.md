@@ -179,6 +179,7 @@ The `examples/` directory contains various use cases:
 - **State Direct** (`examples/state-direct/`) - Call one `LLMCompletionState` by hand and inspect what it does to the history
 - **Tree Loop** (`examples/tree-loop/`) - Drive a behavior tree with your own loop instead of an executive; shows pause/resume vs restart
 - **Poetry** (`examples/poetry/`) - An executive choosing between two behaviors, with an out-of-bounds handler for everything else
+- **Summary Preamble** (`examples/summary-preamble/`) - Two behaviors on one request, merged into one reply; run it with `-no-summary-preamble` to watch the planner's preamble turn that reply into JSON
 - **One Turn** (`examples/one-turn/`) - Drive the executive one message at a time with `Call`, no run loop
 - **Trace Turn** (`examples/trace-turn/`) - The same two turns with a `Trace` channel printing what happens inside
 - **Snapshot Edges** (`examples/snapshot-edges/`) - When a snapshot records the executive and when it does not; runs without any API token
