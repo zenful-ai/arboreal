@@ -858,6 +858,7 @@ func (e *TodoListExecutive) Copy() Behavior {
 	t.PlannerModel = e.PlannerModel
 	t.RepairModel = e.RepairModel
 	t.SummaryModel = e.SummaryModel
+	t.SummaryPreamble = e.SummaryPreamble
 
 	t.planDepth = e.planDepth
 	t.OutOfBoundsHandler = e.OutOfBoundsHandler.Copy()

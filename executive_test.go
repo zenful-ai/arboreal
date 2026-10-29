@@ -2495,3 +2495,22 @@ func TestExecuteReadsSummaryPreamble(t *testing.T) {
 		exec.Execute(modelCtx(), userTurn())
 	})
 }
+
+// TestCopyPreservesSummaryPreamble pins that Copy carries SummaryPreamble,
+// as it carries Preamble: steps run on copies, and an executive nested
+// inside a tree must keep its reply's preamble. Copy is hand-maintained
+// field by field, so a new field is easy to miss.
+func TestCopyPreservesSummaryPreamble(t *testing.T) {
+	exec := newProbeExecutive()
+	exec.OutOfBoundsHandler = exec.Behaviors[0]
+	exec.Preamble = "PLANNER"
+	exec.SummaryPreamble = "REPLY"
+
+	copied, ok := exec.Copy().(*TodoListExecutive)
+	if !ok {
+		t.Fatalf("Copy() returned %T, want *TodoListExecutive", exec.Copy())
+	}
+	if copied.Preamble != "PLANNER" || copied.SummaryPreamble != "REPLY" {
+		t.Fatalf("Copy() = (Preamble %q, SummaryPreamble %q), want (PLANNER, REPLY)", copied.Preamble, copied.SummaryPreamble)
+	}
+}
