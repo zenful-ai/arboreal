@@ -137,6 +137,16 @@ type TodoListExecutive struct {
 	// decision, so naming a planner leaves the reply's voice on the default.
 	SummaryModel string
 
+	// SummaryPreamble is the template that opens the two summarizer prompts,
+	// the calls that write the reply when more than one step ran, or a lone
+	// step failed. Empty opens them with Preamble, as before, so an executive
+	// that sets only Preamble is unchanged. Set it when Preamble carries
+	// planner mechanics that read as instructions to the reply: the direction
+	// format, the []-for-out-of-bounds rule, the Re-plan guard. It is rendered
+	// the way Preamble is, as an AnnotationTemplate against the transcript, and
+	// it does not reach the planner.
+	SummaryPreamble string
+
 	// FIXME: This shouldn't work this way
 	Output string
 
@@ -230,11 +240,15 @@ func fixJSON(ctx context.Context, j, modelURI string) (string, error) {
 	return response.Message.Content, nil
 }
 
-func (e *TodoListExecutive) interpolatedPreamble(messages AnnotatedMessages) string {
+// interpolate renders text as an AnnotationTemplate against messages, the
+// way the executive's preambles are rendered: {{ $last_message }} and any
+// annotation on the transcript are available. A text that fails to parse or
+// render panics; there is no error path.
+func (e *TodoListExecutive) interpolate(text string, messages AnnotatedMessages) string {
 	var buf bytes.Buffer
 	var tmpl AnnotationTemplate
 
-	_, err := tmpl.Parse(e.Preamble)
+	_, err := tmpl.Parse(text)
 	if err != nil {
 		panic(err)
 	}
@@ -244,6 +258,22 @@ func (e *TodoListExecutive) interpolatedPreamble(messages AnnotatedMessages) str
 	}
 
 	return buf.String()
+}
+
+func (e *TodoListExecutive) interpolatedPreamble(messages AnnotatedMessages) string {
+	return e.interpolate(e.Preamble, messages)
+}
+
+// interpolatedSummaryPreamble is what opens the summarizer prompts: the
+// rendered SummaryPreamble when the field is set, else the rendered
+// Preamble. The choice is made on the raw field, before anything is parsed,
+// so an empty SummaryPreamble is never parsed empty and is not a second
+// source of the U+FFFD an empty Preamble renders.
+func (e *TodoListExecutive) interpolatedSummaryPreamble(messages AnnotatedMessages) string {
+	if e.SummaryPreamble != "" {
+		return e.interpolate(e.SummaryPreamble, messages)
+	}
+	return e.interpolatedPreamble(messages)
 }
 
 var executivePlannerPrompt = `{{ .Preamble }}
@@ -642,7 +672,8 @@ Rephrase the following statements or questions as a single question or statement
 `
 
 // summarizerSystem renders the summarizer prompt for the turn: the
-// interpolated Preamble, then executiveSummarizerPrompt with a transcript
+// interpolated SummaryPreamble, or Preamble when it is unset, then
+// executiveSummarizerPrompt with a transcript
 // of messages (one role: content line each) and the summaries, or, when
 // inProcess, workInProcessSummarizerPrompt with the summaries alone. It is
 // pure, like triage, so a test can read the prompt without a model.
@@ -652,7 +683,7 @@ func (e *TodoListExecutive) summarizerSystem(messages AnnotatedMessages, summari
 		Summaries  []string
 		Preamble   string
 	}{
-		Preamble:  e.interpolatedPreamble(messages),
+		Preamble:  e.interpolatedSummaryPreamble(messages),
 		Summaries: summaries,
 	}
 

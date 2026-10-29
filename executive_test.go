@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -2390,4 +2391,107 @@ func TestSummarizerPromptFallsBackToPreamble(t *testing.T) {
 	if !strings.Contains(got, "tree-a: replies with A") {
 		t.Fatalf("planner prompt = %q, want the behavior list in it", got)
 	}
+}
+
+// TestSummarizerPromptOpensWithSummaryPreamble pins the split: a set
+// SummaryPreamble opens both summarizer prompts in Preamble's place, and
+// the planner prompt still opens with Preamble and never sees it.
+func TestSummarizerPromptOpensWithSummaryPreamble(t *testing.T) {
+	exec := replyExecutive(cannedTree("tree-a", "A"))
+	exec.Preamble = "PLANNER"
+	exec.SummaryPreamble = "REPLY"
+	summaries := []string{"A finished", "B finished"}
+
+	for _, inProcess := range []bool{false, true} {
+		got := exec.summarizerSystem(userTurn(), summaries, inProcess)
+		if !strings.HasPrefix(got, "REPLY") {
+			t.Fatalf("inProcess=%v: summarizer prompt = %q, want it to open with the SummaryPreamble", inProcess, got)
+		}
+		if strings.Contains(got, "PLANNER") {
+			t.Fatalf("inProcess=%v: summarizer prompt = %q, want no Preamble in it", inProcess, got)
+		}
+		if !strings.Contains(got, "A finished") || !strings.Contains(got, "B finished") {
+			t.Fatalf("inProcess=%v: summarizer prompt = %q, want both summaries in it", inProcess, got)
+		}
+	}
+
+	got := exec.plannerSystem(userTurn())
+	if !strings.HasPrefix(got, "PLANNER") {
+		t.Fatalf("planner prompt = %q, want it to open with the Preamble", got)
+	}
+	if strings.Contains(got, "REPLY") {
+		t.Fatalf("planner prompt = %q, want no SummaryPreamble in it", got)
+	}
+}
+
+// TestSummaryPreambleIsATemplate pins that both preambles are rendered as
+// AnnotationTemplates against the transcript the turn was given, so
+// {{ $last_message }} is the user's last message in either prompt. It is
+// the first test of Preamble's interpolation too.
+func TestSummaryPreambleIsATemplate(t *testing.T) {
+	exec := replyExecutive(cannedTree("tree-a", "A"))
+	exec.Preamble = "Plan: {{ $last_message }}"
+	exec.SummaryPreamble = "Answer: {{ $last_message }}"
+
+	if got := exec.plannerSystem(userTurn()); !strings.HasPrefix(got, "Plan: Hello") {
+		t.Fatalf("planner prompt = %q, want it to open with the rendered Preamble", got)
+	}
+	for _, inProcess := range []bool{false, true} {
+		got := exec.summarizerSystem(userTurn(), []string{"A finished"}, inProcess)
+		if !strings.HasPrefix(got, "Answer: Hello") {
+			t.Fatalf("inProcess=%v: summarizer prompt = %q, want it to open with the rendered SummaryPreamble", inProcess, got)
+		}
+	}
+}
+
+// TestExecuteReadsSummaryPreamble pins that the field is on execute's
+// path, not only on the extracted summarizerSystem. With a well-formed
+// SummaryPreamble the summarizer still runs through the summarize state and
+// fails on the missing token, as without one. With one that does not parse,
+// Execute panics before any model is called, as Plan panics on a Preamble
+// that does not parse: the plan is seeded, so Plan never runs and the valid
+// Preamble is never parsed on this turn, and the only parse is the summary
+// preamble's.
+func TestExecuteReadsSummaryPreamble(t *testing.T) {
+	t.Run("a set SummaryPreamble still reaches summarize", func(t *testing.T) {
+		noModel(t)
+		exec := twoFinishingSteps(t)
+		exec.SummaryPreamble = "REPLY"
+
+		var sig Signal
+		traced := drainTrace(func(ctx context.Context) {
+			sig = exec.Execute(ctx, userTurn())
+		})
+
+		es, ok := sig.(*ErrorSignal)
+		if !ok {
+			t.Fatalf("Execute returned %T (%v), want *ErrorSignal from the summarizer", sig, sig)
+		}
+		if !strings.Contains(es.ErrorMessage, "OPENAI_TOKEN") {
+			t.Fatalf("ErrorMessage = %q, want the missing-token error", es.ErrorMessage)
+		}
+		if exec.Output != "" {
+			t.Fatalf("Output = %q, want empty", exec.Output)
+		}
+		if endCall(traced, "summarize") == nil {
+			t.Fatal("no end_call named summarize on the trace: the summarizer did not run")
+		}
+	})
+
+	t.Run("a SummaryPreamble that does not parse panics out of Execute", func(t *testing.T) {
+		noModel(t)
+		exec := twoFinishingSteps(t)
+		exec.SummaryPreamble = "{{ unclosed"
+
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("Execute returned, want a panic from parsing the SummaryPreamble")
+			}
+			if !strings.Contains(fmt.Sprint(r), "unclosed annotation template") {
+				t.Fatalf("panic = %v, want the template parse error", r)
+			}
+		}()
+		exec.Execute(modelCtx(), userTurn())
+	})
 }
